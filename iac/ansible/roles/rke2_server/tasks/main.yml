@@ -1,0 +1,37 @@
+---
+- name: Install RKE2 (server)
+  shell: curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE=server sh -
+  args:
+    creates: /usr/local/bin/rke2
+    executable: /bin/bash
+
+- name: Ensure RKE2 config dir
+  file: { path: /etc/rancher/rke2, state: directory, mode: "0755" }
+
+- name: Write server config
+  copy:
+    dest: /etc/rancher/rke2/config.yaml
+    mode: "0600"
+    content: |
+      token: {{ rke2_token }}
+      node-ip: {{ int_ip }}
+      node-name: {{ inventory_hostname }}
+      tls-san:
+        - {{ int_ip }}
+        - {{ edge_lb_ip }}
+        - {{ inventory_hostname }}
+  notify: restart rke2-server
+
+- name: Enable + start rke2-server
+  systemd: { name: rke2-server, enabled: true, state: started, daemon_reload: true }
+
+- name: Wait for kubeconfig to appear
+  wait_for: { path: /etc/rancher/rke2/rke2.yaml, timeout: 600 }
+
+- name: Wait for kube API to be ready
+  shell: /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml get --raw='/readyz'
+  register: rke2_ready
+  retries: 40
+  delay: 10
+  until: rke2_ready.rc == 0
+  changed_when: false

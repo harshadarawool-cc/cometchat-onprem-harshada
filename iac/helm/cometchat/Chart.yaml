@@ -1,0 +1,20 @@
+apiVersion: v2
+name: cometchat-onprem
+description: >-
+  CometChat on-prem application layer (chat & management APIs, websocket, webhooks,
+  analytics, moderation, storage) for an EXISTING Kubernetes cluster that points at
+  EXTERNAL datastores (mongo, mysql, tidb, kafka, redis).
+type: application
+
+# Chart version — bump on every change to the chart itself.
+version: 0.1.0
+
+# The CometChat release this chart deploys (informational; shown in `helm list`).
+appVersion: "1.0.0"
+
+# This chart only deploys workloads; it assumes the cluster already exists.
+kubeVersion: ">=1.27.0-0"
+
+maintainers:
+  - name: CometChat Platform
+    email: harshada.rawool@cometchat.com

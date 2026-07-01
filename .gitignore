@@ -1,0 +1,57 @@
+# ============================================================================
+# SECRETS — never commit. These hold live credentials / private keys / state.
+# ============================================================================
+# rendered per-service secrets (DB passwords, JWT, licences, AWS creds)
+iac/secrets-rendered/
+# private key material, TLS keys, S3 creds, admin passwords, region secret
+iac/.secrets/
+# cluster admin access
+**/kubeconfig
+**/kubeconfig-*
+kubeconfig*
+# terraform state (contains ALL generated secrets) + generated tfvars
+**/*.tfstate
+**/*.tfstate.*
+**/.terraform/
+**/.terraform.lock.hcl
+iac/terraform/terraform.tfvars
+# ansible vault (encrypted, but keep it out to be safe) + vault password file
+**/vault.yml
+**/vault.yaml
+**/.vault_pass*
+# any env file with real values (allow *.example / *.sample templates)
+*.env
+!*.env.example
+!*.env.sample
+!*.env.template
+.env
+# private keys / certs (belt-and-suspenders; .secrets/ already covers the real ones)
+*.pem
+*.key
+!**/*.pub
+# SSH keypair for ansible (private key has NO extension) — keep only the .pub
+iac/ansible/ssh/*
+!iac/ansible/ssh/*.pub
+# generic SSH private-key names
+**/id_rsa
+**/id_ed25519
+**/id_ecdsa
+# AWS / cloud credentials
+**/.aws/
+**/credentials
+**/*credentials*
+# licence files
+**/license.txt
+**/licence.txt
+
+# ============================================================================
+# Build / OS noise
+# ============================================================================
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+*.swp
+.idea/
+.vscode/

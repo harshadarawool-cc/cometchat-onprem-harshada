@@ -1,0 +1,69 @@
+# =============================================================================
+# CoreDNS split-horizon  —  the data-residency + in-cluster-routing mechanism.
+#
+# WHY (PROJECT-JOURNEY §"Split-horizon DNS leak", PROBLEMS-AND-FIXES):
+#   Apps call each other by their PUBLIC names (api-onprem.<domain>, websocket-onprem.<domain>,
+#   rule-onprem.<domain>, …).  Without this, those names resolve via public Route53 → the LB →
+#   out to the internet and back (data leaves the network), and mgmtapi provisions test apps on
+#   PUBLIC staging instead of in-cluster chatapi.  This makes every *.<domain> name resolve, from
+#   INSIDE the cluster, to the in-cluster ingress — so east-west traffic never leaves the VPC.
+#
+# HOW: a stable ClusterIP that fronts the ingress-nginx DaemonSet (which otherwise has only
+#   hostPorts, no ClusterIP), plus a `coredns-custom` zone that answers every name in <domain>
+#   with that ClusterIP.  The `coredns-custom` ConfigMap is the RKE2/k3s-native, reconcile-SAFE
+#   extension point (imported by the managed Corefile) — it survives RKE2 control-plane reconciles,
+#   unlike hand-editing the coredns ConfigMap.  (Was the open "needs a HelmChartConfig" TODO.)
+#
+# Rendered by deploy.sh (phase: coredns): __DOMAIN__, __DOMAIN_RE__ (dots escaped), __INGRESS_IP__
+# come from customer.conf (DOMAIN, INGRESS_INTERNAL_IP).  Apply, then bounce CoreDNS.
+# Verify from in-cluster:  kubectl run d --image=busybox --rm -it -- nslookup api-onprem.__DOMAIN__
+#   → must return __INGRESS_IP__  (NOT a public Route53 address).
+# =============================================================================
+---
+# A stable ClusterIP in front of the RKE2 ingress-nginx controller pods.
+# Pinned IP so the CoreDNS template can answer with a literal A record (no kubernetes
+# plugin needed inside the custom zone). If 10.43.0.0/16 is not your service CIDR, set
+# INGRESS_INTERNAL_IP in customer.conf to a free address in the real range.
+apiVersion: v1
+kind: Service
+metadata:
+  name: rke2-ingress-nginx-internal
+  namespace: kube-system
+  labels: { app.kubernetes.io/part-of: cometchat-split-horizon }
+spec:
+  type: ClusterIP
+  clusterIP: __INGRESS_IP__
+  selector:
+    app.kubernetes.io/name: rke2-ingress-nginx
+    app.kubernetes.io/component: controller
+  ports:
+    - { name: http,  port: 80,  targetPort: 80,  protocol: TCP }
+    - { name: https, port: 443, targetPort: 443, protocol: TCP }
+---
+# RKE2/k3s import this ConfigMap's *.server / *.override files into the managed Corefile.
+# One zone block for <domain>: every A query in the zone is answered with the internal
+# ingress IP; AAAA is answered empty (NOERROR, no record) so clients fall back to A and no
+# IPv6 query leaks out; other record types fall through to the cluster's normal resolver.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+  labels: { app.kubernetes.io/part-of: cometchat-split-horizon }
+data:
+  cometchat-onprem.server: |
+    __DOMAIN__:53 {
+        errors
+        template IN A {
+            match "^.*__DOMAIN_RE__\.$"
+            answer "{{ .Name }} 60 IN A __INGRESS_IP__"
+            fallthrough
+        }
+        template IN AAAA {
+            match "^.*__DOMAIN_RE__\.$"
+            rcode NOERROR
+        }
+        forward . /etc/resolv.conf
+        cache 30
+        reload
+    }

@@ -1,0 +1,5 @@
+---
+mysql_root_password: "{{ vault_mysql_root_password | default('CHANGE_ME_MATCH_STAGING') }}"
+mysql_data_disk_path: /dev/disk/by-id/google-data
+mysql_databases:
+  - pulsecustomerdb

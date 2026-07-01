@@ -1,0 +1,222 @@
+# =============================================================================
+# values.yaml — DEFAULT values for the cometchat-onprem chart.
+#
+# This is the "control panel". Every customer-specific knob lives here. The
+# customer does NOT edit the templates — they only override the few values they
+# care about in a small `values-customer.yaml` (we build that file in a later step).
+#
+# Anything set here is the default; `helm install -f values-customer.yaml` wins.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Where everything gets installed. The app envs reference services by the DNS
+# name "<svc>.cometchat.svc.cluster.local", so this name is baked into config —
+# keep it "cometchat" unless you also rewrite every datastore/app endpoint.
+# Install with:  helm install cometchat ./cometchat -n cometchat --create-namespace
+# ---------------------------------------------------------------------------
+namespace: cometchat
+
+# ---------------------------------------------------------------------------
+# The customer's domain. Replaces "cometchat-cluster-2.in" everywhere
+# (ingress hosts, TLS SANs, app callback URLs). Set once, used everywhere.
+# ---------------------------------------------------------------------------
+domain: cometchat-cluster-2.in
+
+# ---------------------------------------------------------------------------
+# Licensed/obfuscated CometChat images.
+# These live in a PRIVATE registry. The customer mirrors them into their own
+# registry (image delivery is still an open decision) and points `registry`
+# at it. Each licensed service references this registry + a digest/tag.
+#   full ref = {registry}/{repository}@{digest}   (or :{tag})
+# Public images (mailpit, opensearch, nginx, busybox...) are pinned directly on
+# the service and do NOT use this registry.
+# ---------------------------------------------------------------------------
+image:
+  registry: 894996064311.dkr.ecr.us-east-2.amazonaws.com
+  repository: on-prem-docker-images
+  pullPolicy: IfNotPresent
+  # Name of the imagePullSecret that can pull from `registry`. Either created by
+  # the customer (kubectl create secret docker-registry ...) or by this chart
+  # (we add that option in the secrets step).
+  pullSecret: ecr-pull
+
+# ---------------------------------------------------------------------------
+# Names of PRE-CREATED Kubernetes Secrets the chart only REFERENCES (never
+# creates). They are produced once, out-of-band, by make-secrets.sh. Override
+# only if you created them under different names.
+#   cc-license          file: license.txt
+#   jwt-keys            files: private.pem, public.pem   (signing: chatapi/mgmtapi)
+#   jwt-public          file:  jwtrsakey.pem             (verify-only: websocket/analytics)
+#   seaweedfs-s3-creds  keys:  access-key, secret-key
+#   <svc>-env           key:   .env                      (per-service, e.g. chatapi-env)
+# The imagePullSecret name is set above as image.pullSecret.
+# ---------------------------------------------------------------------------
+secretNames:
+  license: cc-license
+  jwt: jwt-keys
+  jwtPublic: jwt-public
+  seaweedfsS3Creds: seaweedfs-s3-creds
+
+# ---------------------------------------------------------------------------
+# EXTERNAL datastores. The chart deploys NONE of these — the customer points
+# each at their own managed instance. (We wire these into the app envs in the
+# datastore step; listed here now so the architecture is visible.)
+# ---------------------------------------------------------------------------
+datastores:
+  mongo:
+    uri: ""              # e.g. mongodb://user:pass@mongo-host:27017/?replicaSet=rs0
+  mysql:
+    host: ""
+    port: 3306
+  tidb:
+    host: ""
+    port: 4000
+  kafka:
+    brokers: ""          # e.g. kafka-1:9092,kafka-2:9092,kafka-3:9092
+  redis:
+    # CometChat uses several logical redis roles; point each at the customer's redis.
+    queue:    { host: "", port: 6379 }
+    cache:    { host: "", port: 6379 }
+    session:  { host: "", port: 6379 }
+    presence: { host: "", port: 6379 }
+
+# ---------------------------------------------------------------------------
+# Ingress + TLS. Filled in fully in the ingress step. Stub here so the value
+# tree is stable.
+# ---------------------------------------------------------------------------
+ingress:
+  className: nginx
+  tls:
+    # cert-manager  -> chart creates a Certificate (needs a configured issuer)
+    # existing      -> customer pre-creates the `secretName` TLS secret themselves
+    mode: existing
+    secretName: wildcard-tls
+  # CIDRs allowed to reach the INTERNAL (app->app) hosts. Defaults match RKE2.
+  internalSourceRanges: "10.42.0.0/16,10.43.0.0/16,10.20.0.0/16"
+
+# ---------------------------------------------------------------------------
+# Per-service configuration. Each top-level key is one workload. `enabled`
+# toggles it on/off so a customer can disable optional pieces (e.g. mailpit,
+# ollama) without touching templates.
+#
+# Only `mailpit` is wired up in this first step — the rest get added service by
+# service. Keeping them absent is fine; their templates are guarded by `enabled`.
+# ---------------------------------------------------------------------------
+services:
+
+  # ---- mailpit: SMTP catcher used by mgmtapi for email testing (public image)
+  mailpit:
+    enabled: true
+    image: axllent/mailpit:v1.20
+    replicas: 1
+    resources:
+      requests: { cpu: 25m, memory: 48Mi }
+      limits:   { cpu: 200m, memory: 192Mi }
+
+  # ---- opensearch: single-node search for service-search / moderation (public image)
+  opensearch:
+    enabled: true
+    image: opensearchproject/opensearch:2.17.1
+    replicas: 1
+    javaOpts: "-Xms512m -Xmx512m"   # JVM heap; raise for larger workloads
+    storage: 20Gi
+    storageClass: ""                # "" = cluster default; set if the customer needs a specific class
+    resources:
+      requests: { cpu: 300m, memory: 1Gi }
+      limits:   { cpu: "1", memory: 2Gi }
+
+  # ---- ollama: local LLM runtime for moderation vision (public image)
+  ollama:
+    enabled: true
+    image: ollama/ollama:0.5.7
+    replicas: 1
+    storage: 20Gi
+    storageClass: ""
+    resources:
+      requests: { cpu: 500m, memory: 2Gi }
+      limits:   { cpu: "2", memory: 6Gi }
+
+  # ---- chatapi: LICENSED. Laravel + Octane + nginx sidecar. The flagship service.
+  chatapi:
+    enabled: true
+    # Licensed image digest from image.registry/image.repository@<digest>.
+    # ⚠ chat-api builds expire (ionCube) — re-pin to the latest :chat-api digest on CrashLoop.
+    digest: "sha256:6cf585b9d0d21366bdafa71ba84c78a40a27280248bfb49356add7eb2c2609db"
+    envSecret: chatapi-env        # pre-created Secret holding the .env (key: .env)
+    nginxImage: nginx:1.27-alpine
+    replicas: 1
+    resources:
+      app:   { requests: { cpu: 250m, memory: 768Mi }, limits: { cpu: "2", memory: 3Gi } }
+      nginx: { requests: { cpu: 25m,  memory: 64Mi },  limits: { cpu: 200m, memory: 128Mi } }
+
+  # ===========================================================================
+  # GENERIC services (generic: true) — rendered by templates/_app.tpl via the
+  # standard-apps.yaml loop. Single licensed container, config from an envFrom
+  # secret. Adding one later is just another block like these.
+  # ===========================================================================
+
+  # ---- globalwebhooks (NestJS) — webhook event consumers
+  globalwebhooks:
+    enabled: true
+    generic: true
+    digest: "sha256:b2e369322b8e0ccc22ee6c8e94d22e53a94a0dbc86dde053fdaf7c40208d5791"
+    command: ["sh", "-c", "cd /app/packages/global_event_consumers && exec node dist/src/main"]
+    envFromSecret: globalwebhooks-env
+    port: 3006
+    probe: { type: http, path: /v1/webhooks/health-check }
+    podSecurityContext: { seccompProfile: { type: RuntimeDefault } }
+    resources: { requests: { cpu: 200m, memory: 384Mi }, limits: { cpu: "1", memory: 1Gi } }
+
+  # ---- service-search (NestJS) — search API (depends on opensearch)
+  service-search:
+    enabled: true
+    generic: true
+    digest: "sha256:d6e2d1746a296ece7f4e97dfc7c819ee2acb74f5696e39df472119f1977022b2"
+    command: ["sh", "-c", "cd /app && exec node dist/main.js"]
+    envFromSecret: service-search-env
+    port: 3000
+    probe: { type: http, path: /health-check }
+    podSecurityContext: { seccompProfile: { type: RuntimeDefault } }
+    resources: { requests: { cpu: 150m, memory: 384Mi }, limits: { cpu: "1", memory: 1Gi } }
+
+  # ---- metrics-pro (PM2) — pro metrics API on :3003. Image by TAG, not digest.
+  metrics-pro:
+    enabled: true
+    generic: true
+    tag: pro-metrics
+    command: ["sh", "-c", "export PM2_HOME=/tmp/.pm2; cd /app; exec pm2-runtime start ecosystem.config.json --only pro-metrics"]
+    env: [{ name: PM2_HOME, value: /tmp/.pm2 }]
+    envFromSecret: metrics-pro-env
+    port: 3003
+    probe: { type: tcp }
+    resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: "1", memory: 1Gi } }
+
+  # ---- notificationscore (NestJS) — single-process via shim configmap (see notificationscore-shim.yaml)
+  notificationscore:
+    enabled: true
+    generic: true
+    digest: "sha256:a90d1dc9cfc7fbf845b10bfbcd2988cb27fa10e1ba95e988a5fea1f1cd9bb2a2"
+    command: ["sh", "-c", "cd /app && exec node --require /shim/single-cpu.js dist/src/main"]
+    envFromSecret: notificationscore-env
+    port: 3100
+    probe: { type: http, path: /health-check }
+    podSecurityContext: { seccompProfile: { type: RuntimeDefault } }
+    extraVolumes:      [{ name: shim, configMap: { name: notificationscore-shim } }]
+    extraVolumeMounts: [{ name: shim, mountPath: /shim, readOnly: true }]
+    resources: { requests: { cpu: 250m, memory: 512Mi }, limits: { cpu: "1", memory: 1536Mi } }
+
+  # ---- sql-consumer (bytenode) — Kafka->TiDB DDL applier. Config via FILE secret, pinned uid 999.
+  sql-consumer:
+    enabled: true
+    generic: true
+    digest: "sha256:1f25723b5132b420655a83cc7e4068c9e8313813c79b0ba5592aadc3290c9d3c"
+    command: ["sh", "-c", "cd /app && exec node dist/loader.js"]
+    env: [{ name: NODE_ENV, value: production }]
+    port: 8000
+    probe: { type: tcp }
+    strategy: { type: RollingUpdate, rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } }
+    podSecurityContext: { runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, seccompProfile: { type: RuntimeDefault } }
+    containerSecurityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: false, capabilities: { drop: ["ALL"] } }
+    extraVolumes:      [{ name: config, secret: { secretName: sql-consumer-config } }]
+    extraVolumeMounts: [{ name: config, mountPath: /app/dist/config.json, subPath: config.json, readOnly: true }]
+    resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: "1", memory: 1Gi } }

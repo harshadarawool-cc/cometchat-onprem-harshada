@@ -1,0 +1,26 @@
+---
+kafka_version: "3.9.2"
+kafka_scala: "2.13"
+# Fast CDN mirror (archive.apache.org is throttled to ~100KB/s and times out).
+kafka_download_url: "https://dlcdn.apache.org/kafka/{{ kafka_version }}/kafka_{{ kafka_scala }}-{{ kafka_version }}.tgz"
+
+kafka_install_dir: /opt/kafka
+kafka_data_dir: /var/lib/kafka/data
+kafka_log_dir: /var/log/kafka
+
+kafka_port: 9092
+kafka_controller_port: 9093
+
+kafka_num_partitions: 3
+# TEST scale = 1 broker -> RF/min-insync MUST be 1 (else topic creation fails: not enough brokers).
+# HA rebuild = 3 brokers -> set these back to 3 / 2.
+kafka_default_replication_factor: 1
+kafka_min_insync_replicas: 1
+kafka_log_retention_hours: 168
+kafka_log_segment_bytes: 1073741824
+kafka_log_retention_bytes: -1
+kafka_heap_opts: "-Xmx1G -Xms1G"
+
+# Topics to pre-create (MSK/staging parity). Populate from akamai topics list.
+# Each: { name, partitions?, replication_factor?, min_insync_replicas?, cleanup_policy?, retention_ms? }
+kafka_topics: []

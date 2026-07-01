@@ -1,0 +1,50 @@
+---
+# Restore Mongo dump (moderation / events / notifications-core-db) into rs0 — SKIP-IF-ABSENT.
+#   Mongo is schemaless: apps create their collections on first write, so this dump is OPTIONAL
+#   (it pre-seeds existing data e.g. webhook trigger master data). A missing dump just logs SKIP.
+#   Override the path with -e mongo_dump_src=... (deploy.sh passes it from customer.conf).
+- name: Restore Mongo dump (optional) into rs0
+  hosts: mongo[0]
+  become: true
+  gather_facts: false
+  vars:
+    mongo_dump_src: /Users/harshada/prodction-kubenates/cometchat-chat-api-infra-backend/mongo-dump/
+  tasks:
+    - name: Check mongo dump exists (on the control host)
+      delegate_to: localhost
+      become: false
+      stat: { path: "{{ mongo_dump_src }}" }
+      register: mongo_dump_stat
+
+    - name: Note skip when dump absent
+      debug:
+        msg: "SKIP mongo restore — {{ mongo_dump_src }} not found (apps create collections on demand)"
+      when: not mongo_dump_stat.stat.exists
+
+    - name: Copy mongo-dump to primary
+      copy: { src: "{{ mongo_dump_src }}", dest: /tmp/mongo-dump/, mode: "0644" }
+      when: mongo_dump_stat.stat.exists
+
+    - name: mongorestore (idempotent on rerun)
+      shell: >
+        mongorestore --username root --password '{{ vault_mongo_admin_password }}'
+        --authenticationDatabase admin /tmp/mongo-dump/ 2>&1 | tail -3
+      register: restore
+      no_log: true
+      changed_when: true
+      when: mongo_dump_stat.stat.exists
+
+    - name: Show restore tail (creds-free)
+      debug: { msg: "{{ restore.stdout_lines | default([]) }}" }
+      when: mongo_dump_stat.stat.exists
+
+    - name: Verify DBs present
+      shell: mongosh --quiet -u root -p '{{ vault_mongo_admin_password }}' --authenticationDatabase admin --eval 'db.adminCommand("listDatabases").databases.map(d=>d.name).join(",")'
+      register: dbs
+      no_log: true
+      changed_when: false
+    - debug: { msg: "DBs: {{ dbs.stdout }}" }
+
+    - name: Cleanup
+      file: { path: /tmp/mongo-dump, state: absent }
+      when: mongo_dump_stat.stat.exists

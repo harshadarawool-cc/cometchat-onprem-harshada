@@ -1,0 +1,14 @@
+# Patterns to exclude when packaging the chart into a .tgz
+.DS_Store
+.git/
+.gitignore
+*.tmp
+*.bak
+*.orig
+*.swp
+# never ship real secrets inside the chart package
+secrets-rendered/
+.secrets/
+*.env
+*.pem
+license.txt

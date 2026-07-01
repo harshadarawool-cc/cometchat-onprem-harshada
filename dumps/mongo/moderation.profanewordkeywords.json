@@ -1,0 +1,607 @@
+[{
+  "_id": {
+    "$oid": "67bb59a0263618198ee10992"
+  },
+  "id": "spam-scam",
+  "name": "Spam and Scam Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_spam-scam_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any spam, scam attempts, phishing links, or fraudulent schemes in any language. This includes repetitive solicitations, deceptive tactics, or attempts at financial exploitation."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to identify spam or fraudulent text.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bb57ca263618198ee10987"
+  },
+  "id": "hate-harassment",
+  "name": "Hate and Harassment Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_hate-harassment_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any hateful or harassing language in any language directed at a person or group. This includes slurs, personal attacks, threats, bullying, or other targeted hostility."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to detect hateful or harassing language toward a person or group.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bbec9e263618198ee109bd"
+  },
+  "id": "explicit-or-sexual-content",
+  "name": "Explicit or Sexual Content Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_explicit-or-sexual-content_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any image containing nudity, explicit sexual activity, or suggestive content not suitable for general audiences or minors. This includes sexual acts or intimate body parts depicted without consent or appropriate context.\n"
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to identify nudity or sexual content unsuitable for general audiences.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bb59e8263618198ee1099b"
+  },
+  "id": "self-harm-suicidal-content",
+  "name": "Self-Harm or Suicidal Content Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_self-harm-suicidal-content_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any message in any language suggesting self-harm, suicidal thoughts, or instructions on self-injury. This includes threats of suicide, encouragement of self-harm, or content indicating urgent risk."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to flag messages suggesting self-harm or suicidal thoughts.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bbee8e263618198ee109bf"
+  },
+  "id": "graphic-violence-or-gore",
+  "name": "Graphic Violence or Gore Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_graphic-violence-or-gore_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any image depicting extreme violence, gore, or other highly graphic content likely to disturb viewers. This includes images of severe injury, torture, or explicit physical harm."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to detect violent or gory visuals.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bb59e0263618198ee10999"
+  },
+  "id": "impersonation-fraud",
+  "name": "Impersonation or Fraud Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_impersonation-fraud_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any attempt in any language to impersonate another person or organization. This includes maliciously misrepresenting one's identity or using deceptive methods to gain access or information."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to detect deceptive attempts to pose as another person or organization.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bbef09263618198ee109c5"
+  },
+  "id": "minor-safety-and-exploitation",
+  "name": "Minor Safety and Exploitation Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_minor-safety-and-exploitation_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any image depicting child sexual content, sexualized imagery of minors, or contexts placing minors at risk. This includes non-consensual photographs or any exploitative representation."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to detect sexualized imagery of minors or exploitative content.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bb59c2263618198ee10996"
+  },
+  "id": "non-consensual-sexual-content",
+  "name": "Non-Consensual Sexual Content or Exploitation Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_non-consensual-sexual-content_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any sexual content in any language depicting or encouraging acts without consent. This includes sexual exploitation, grooming, or sharing intimate imagery without permission."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to find messages depicting or encouraging sexual acts without consent.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bbeeb5263618198ee109c1"
+  },
+  "id": "privacy-or-personal-data",
+  "name": "Privacy or Personal Data Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_privacy-or-personal-data_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any image that reveals private or sensitive information without consent—such as IDs, phone numbers, addresses, or financial documents."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to spot private or sensitive information revealed in an image.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bbec48263618198ee109b8"
+  },
+  "id": "terrorism-or-extremist-promotion",
+  "name": "Terrorism or Extremist Promotion Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_terrorism-or-extremist-promotion_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any image endorsing violent extremism or terrorism, including propaganda, group insignias, or calls for violent acts."
+  ],
+  "__v": 0,
+  "description": "Description: Use OpenAI to detect imagery endorsing violent extremism or terrorism.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bbef36263618198ee109c7"
+  },
+  "id": "fraud-or-scam-indicators",
+  "name": "Fraud or Scam Indicators Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_fraud-or-scam-indicators_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any image apparently used to mislead or deceive, such as fake IDs, manipulated screenshots, or doctored materials supporting fraudulent or malicious activity."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to flag images manipulated for fraudulent or deceptive activity.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bb59ba263618198ee10994"
+  },
+  "id": "violent-threats",
+  "name": "Violent or Terroristic Threats Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_violent-threats_1",
+  "active": true,
+  "default": true,
+  "__v": 0,
+  "description": "Use OpenAI to detect content encouraging or glorifying violence or extremism.",
+  "appId": "default",
+  "prompts": [
+    "Any encouragement, planning, or glorification of violence or extremism in any language. This includes calls for harm or support of dangerous groups or ideologies."
+  ]
+},
+{
+  "_id": {
+    "$oid": "67bbeece263618198ee109c3"
+  },
+  "id": "self-harm-or-suicidal-content",
+  "name": "Self-Harm or Suicidal Content Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_self-harm-or-suicidal-content_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any image depicting self-harm methods, suicidal ideation, or instructions. This includes visuals promoting or glamorizing self-injury or content indicating an immediate risk to personal safety."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to find imagery suggesting self-harm or suicide.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "66d96f03cd720ed6095240cb"
+  },
+  "id": "platform-circumvention",
+  "name": "Platform Circumvention List (English)",
+  "category": "sentence-similarity",
+  "isCSV": false,
+  "disallowedSentences": [
+    "I'll send you the details via my personal email",
+    "Let's switch to Messenger for quicker replies",
+    "Text me at this number, it's faster",
+    "Can you share your WhatsApp so we can talk there",
+    "I'll DM you on Twitter with the info",
+    "Find me on Facebook, and we can discuss further",
+    "We should move this chat to Slack",
+    "My Viber number is (123) 456-7890; let's chat there",
+    "Here's my Zoom link, we can meet there",
+    "Can we take this conversation to FaceTime",
+    "I'll add you on Signal for secure communication",
+    "Send me a message on WeChat at @username",
+    "You can send the payment directly via Venmo",
+    "Here's my Cash App handle; transfer the money there",
+    "Let's use Zelle for payment instead",
+    "I'll give you my bank account details for a direct transfer",
+    "Please pay me using cryptocurrency; here's my wallet address",
+    "Contact me through my business website for more details",
+    "You can find me on LinkedIn, and we can discuss privately",
+    "I'll send the invoice through my personal email",
+    "Let's take this discussion offline",
+    "Join my Discord server for more info",
+    "I'll share the file via Dropbox; just send me your email",
+    "I prefer to use Telegram for our communications",
+    "Meet me on Kik to continue this conversation",
+    "My personal email is faster for responses",
+    "Let's handle this outside the platform to avoid fees",
+    "I'll send you my personal phone number",
+    "Let's keep this off the platform for privacy",
+    "I can send you a private link for more information",
+    "I'll contact you directly with the details",
+    "Send me your email, and I'll share the documents",
+    "It's better if we don't use the platform for this",
+    "I'll reach out to you on Snapchat",
+    "Connect with me on a different app for further discussion",
+    "Pay me directly to avoid platform commissions",
+    "Let's finalize the deal over a phone call",
+    "I'll send you the product catalog through my personal email",
+    "Please add me on Hangouts to discuss further",
+    "I'll share my PayPal link in a private message",
+    "You can wire the payment directly to my account",
+    "Let's avoid platform fees by handling this directly",
+    "I'll forward the files to your personal email",
+    "Reach out to me on TikTok for a quick response",
+    "I can offer a discount if we handle this outside the platform",
+    "Here's my email, let's communicate off-platform",
+    "I'll send you a Google Meet link",
+    "Connect with me through Zoom for more information",
+    "We should use a different platform for this conversation",
+    "You can contact me via my work email for further details",
+    "Send me a LinkedIn message for more info",
+    "Let's discuss the details in a private chat outside the platform",
+    "Here's my Signal ID, let's talk there",
+    "I'll share my private number for direct communication",
+    "I'll give you my email so we can continue this outside",
+    "We should handle this transaction through PayPal",
+    "Let's continue this discussion on another platform",
+    "I'll send you a private message with my contact info",
+    "Add me on Instagram, and we can discuss more",
+    "We can avoid platform restrictions by taking this offline"
+  ],
+  "createdAt": 1718354412,
+  "updatedAt": 1718354412,
+  "active": true,
+  "__v": 0,
+  "default": true,
+  "appId": "default",
+  "description": "A reference list of phrases commonly used in English to bypass platform rules."
+},
+{
+  "_id": {
+    "$oid": "6703a80be35a7b44e2092be2"
+  },
+  "id": "scam-detection",
+  "name": "Scam Detection List (English)",
+  "category": "sentence-similarity",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1728292545,
+  "updatedAt": 1728292545,
+  "revisionId": "253198f944b31697_scam-detection_1",
+  "active": true,
+  "default": true,
+  "disallowedSentences": [
+    "You've been selected to receive a free gift, just click here!",
+    "Claim your prize now before it's too late!",
+    "Congratulations, you're our lucky winner!",
+    "This offer expires soon, act now!",
+    "Unlock exclusive rewards by verifying your account.",
+    "Your account has been compromised, click here to fix it immediately.",
+    "You've inherited a large sum of money; contact us for details.",
+    "I need your help to transfer money from my country.",
+    "Earn thousands a week working from home!",
+    "Get rich quick with this one simple trick.",
+    "You’ve won a free vacation, claim it now!",
+    "Your payment is pending, verify your account to receive funds.",
+    "Update your bank details immediately to avoid suspension.",
+    "Click here to verify your PayPal account and avoid being blocked.",
+    "Receive a free iPhone, just cover the shipping fee.",
+    "Your account is at risk, reset your password now.",
+    "Please send money urgently to help me out of this situation.",
+    "Invest in this cryptocurrency and double your money in no time!",
+    "Your subscription is about to expire, renew now to avoid charges.",
+    "A friend sent you a gift, click to claim it.",
+    "We noticed suspicious activity, please confirm your identity.",
+    "Get a guaranteed loan with no credit check.",
+    "Activate your cash prize by providing your bank details.",
+    "You qualify for student loan forgiveness, click here to apply.",
+    "Your order has been placed, click here to cancel if you didn't authorize it.",
+    "I accidentally sent you extra money, can you refund me?",
+    "You have unpaid fines, click here to settle.",
+    "We’re offering exclusive discounts, but only for a limited time!",
+    "You've been overcharged, click here for a refund.",
+    "Help me with this transaction, and I’ll give you a percentage of the funds.",
+    "Your tax refund is ready, claim it now.",
+    "Your delivery failed, click here to reschedule.",
+    "You’ve been locked out of your account, recover it now.",
+    "This is your final notice, click here to avoid legal action.",
+    "Transfer money to my account, and I’ll handle the payment.",
+    "You’ve been flagged for suspicious activity, take action now!",
+    "Invest today and get instant returns!",
+    "Click here to view your recent bank statement.",
+    "I need a favor, can you send me some money quickly?",
+    "You've been pre-approved for a personal loan, apply now!",
+    "Enter your details to receive your free sample.",
+    "Send your payment details to avoid account suspension.",
+    "Click here to confirm your package delivery.",
+    "Earn money fast with our secret investment system.",
+    "Your Amazon order has been shipped, click here to track.",
+    "A relative left you an inheritance, contact us for details.",
+    "Win a $1000 shopping spree, just fill out this survey!",
+    "We’ve detected a virus on your device, click here to remove it.",
+    "Your payment method was declined, update your info now.",
+    "This is a time-sensitive opportunity, don't miss out!"
+  ],
+  "__v": 0,
+  "description": "A reference list for detecting scam-related messages in English using sentence similarity.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "6703a935e35a7b44e2092be3"
+  },
+  "id": "spam-detection",
+  "name": "Spam Detection List (English)",
+  "category": "sentence-similarity",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1718354412,
+  "updatedAt": 1718354412,
+  "revisionId": "253198f944b31697_spam-detection_1",
+  "active": true,
+  "default": true,
+  "disallowedSentences": [
+    "Get 50% off all products, limited time offer!",
+    "Buy now and receive free shipping!",
+    "Check out our amazing deal on these new items!",
+    "Click here to claim your exclusive discount.",
+    "Increase your followers instantly!",
+    "Join our subscription for daily updates.",
+    "Sign up now to receive unlimited access!",
+    "Earn money fast with zero effort!",
+    "Click to subscribe and never miss out on deals!",
+    "Hurry, this offer won't last long!",
+    "Don't miss your chance to win a free gift!",
+    "Special offer just for you, act now!",
+    "Get instant access to premium content!",
+    "Congratulations! You've been selected for an amazing prize!",
+    "Your free trial is waiting, claim it today!",
+    "Limited-time promotion on all products, click here!",
+    "Boost your website traffic with our easy solution.",
+    "Exclusive offer – sign up today for huge savings!",
+    "Double your earnings with this quick method!",
+    "Free consultation, click now to schedule.",
+    "Click here to improve your credit score instantly.",
+    "Learn the secret to making millions, act now!",
+    "Free download, just click the link!",
+    "Order now for a limited-time bonus!",
+    "Upgrade your account for special rewards.",
+    "Earn rewards by sharing this link!",
+    "Unlock premium features by signing up!",
+    "Claim your coupon before it expires!",
+    "Get your free ebook today!",
+    "Receive a free product sample by filling out this form.",
+    "Click here to access exclusive member benefits.",
+    "Subscribe to our newsletter for exciting offers!",
+    "Free tickets available, click here to reserve yours!",
+    "Refer friends and get rewards!",
+    "Huge discounts on brand-name products, click here!",
+    "Access unlimited streaming with our free trial!",
+    "Get exclusive deals by entering your email!",
+    "Claim your free stock by signing up today!",
+    "Start your weight loss journey now with this miracle product!",
+    "Get a free consultation with our experts today!",
+    "Shop the latest trends at unbeatable prices!",
+    "Click now to become an affiliate and start earning!",
+    "Sign up for our free webinar to learn more!",
+    "Flash sale happening now, don’t miss out!",
+    "Win a vacation by entering your email here!",
+    "Join now and receive free lifetime access!",
+    "Upgrade to premium for endless benefits!",
+    "Claim your free gift card by clicking here!",
+    "Don't miss out on these incredible savings!",
+    "Get started today and receive instant rewards!"
+  ],
+  "__v": 0,
+  "description": "A reference list for detecting spam messages in English based on sentence similarity.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bbebdc263618198ee109b6"
+  },
+  "id": "hate-or-harassment",
+  "name": "Hate or Harassment Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_hate-or-harassment_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any image containing hate symbols, extremist insignia, harassing or threatening imagery, or depictions intended to humiliate or bully individuals or groups."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to detect hateful symbols or harassing imagery.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bb5998263618198ee10990"
+  },
+  "id": "explicit-inappropriate-content",
+  "name": "Explicit or Inappropriate Content Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_explicit-inappropriate-content_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any content in any language containing explicit sexual descriptions, graphic violence, or other material unsuitable for general audiences or minors."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to detect explicit sexual descriptions, graphic violence, or other unsuitable text.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "67bb58d8263618198ee1098b"
+  },
+  "id": "privacy-sensitive-info",
+  "name": "Privacy and Sensitive Info Prompt",
+  "category": "open-ai",
+  "isCSV": false,
+  "searchTerms": [],
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_privacy-sensitive-info_1",
+  "active": true,
+  "default": true,
+  "prompts": [
+    "Any personal or sensitive information shared without consent in any language. This includes addresses, phone numbers, financial details, or health records."
+  ],
+  "__v": 0,
+  "description": "Use OpenAI to find personal or sensitive information shared without consent.",
+  "appId": "default"
+},
+{
+  "_id": {
+    "$oid": "666c01eccfe97336757fb611"
+  },
+  "id": "profanity-list",
+  "name": "Profane Words List (English)",
+  "category": "word",
+  "isCSV": false,
+  "searchTerms": [
+    "fuck",
+    "nigger",
+    "fuck",
+    "nigger",
+    "wanker",
+    "cunt",
+    "damn",
+    "shit",
+    "fag",
+    "shithead",
+    "jizz",
+    "hellbitch",
+    "retard",
+    "cocksucker",
+    "cock",
+    "kill",
+    "cunt",
+    "kike",
+    "twat",
+    "bastard",
+    "death",
+    "asshole",
+    "wop",
+    "scumbag",
+    "penis",
+    "murder",
+    "dick",
+    "gook",
+    "vagina",
+    "rape",
+    "bastard",
+    "spic",
+    "spunk",
+    "beat"
+  ],
+  "createdAt": 1718354412,
+  "updatedAt": 1718354412,
+  "revisionId": "253157108b5294c4_profanity-list_1",
+  "active": true,
+  "__v": 0,
+  "default": true,
+  "appId": "default",
+  "description": "A predefined list of profane and offensive words in English for filtering."
+}]

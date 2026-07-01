@@ -1,0 +1,18 @@
+CometChat on-prem — release "{{ .Release.Name }}" installed into namespace "{{ include "cometchat.namespace" . }}".
+
+Domain : {{ .Values.domain }}
+Chart  : {{ .Chart.Name }}-{{ .Chart.Version }} (appVersion {{ .Chart.AppVersion }})
+
+What's enabled so far:
+{{- range $name, $cfg := .Values.services }}
+{{- if $cfg.enabled }}
+  ✓ {{ $name }}
+{{- end }}
+{{- end }}
+
+Next:
+  kubectl -n {{ include "cometchat.namespace" . }} get pods
+  helm -n {{ include "cometchat.namespace" . }} status {{ .Release.Name }}
+
+(This chart deploys the application layer only. It assumes the cluster and the
+ external datastores already exist and are reachable.)

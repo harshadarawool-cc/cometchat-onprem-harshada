@@ -1,0 +1,38 @@
+# es-indexes — create the OpenSearch indexes service-search needs (app-index / reaction-index /
+# search-index / prefix-search-index) from the schemas BAKED into the service-search image, extracted
+# to k8s/es-schemas/*.json. This is Aryan's es-indexes.sh equivalent: service-search does NOT auto-create
+# them (its queries hit index_not_found -> search returns nothing). Idempotent — skips indexes that exist.
+# deploy.sh creates the `es-schemas` ConfigMap from k8s/es-schemas/*.json, then applies this Job AFTER
+# opensearch is Ready (phase_support / phase_es_indexes). prefix-search-index reuses search-index's schema.
+apiVersion: batch/v1
+kind: Job
+metadata: { name: es-indexes, namespace: cometchat, labels: { app.kubernetes.io/part-of: cometchat-seeding } }
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata: { labels: { app.kubernetes.io/name: es-indexes } }
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: es-indexes
+          image: curlimages/curl:8.10.1
+          command: ["sh","-c"]
+          args:
+            - |
+              ES="http://opensearch.cometchat:9200"
+              # wait for opensearch to answer
+              for i in $(seq 1 60); do curl -s -o /dev/null "$ES" && break; sleep 2; done
+              rc=0
+              for f in /schemas/*.json; do
+                idx=$(basename "$f" .json)
+                exists=$(curl -s -o /dev/null -w '%{http_code}' "$ES/$idx")
+                if [ "$exists" = "200" ]; then echo "$idx already exists — skip"; continue; fi
+                code=$(curl -s -o /tmp/r -w '%{http_code}' -X PUT "$ES/$idx" -H 'Content-Type: application/json' --data-binary @"$f")
+                echo "PUT $idx -> $code"
+                if [ "$code" != "200" ]; then cat /tmp/r; rc=1; fi
+              done
+              echo "es-indexes done (rc=$rc)"; exit $rc
+          volumeMounts: [{ name: schemas, mountPath: /schemas, readOnly: true }]
+      volumes:
+        - { name: schemas, configMap: { name: es-schemas } }

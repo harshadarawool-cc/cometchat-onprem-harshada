@@ -1,0 +1,23 @@
+---
+- name: Install RKE2 (agent)
+  shell: curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE=agent sh -
+  args:
+    creates: /usr/local/bin/rke2
+    executable: /bin/bash
+
+- name: Ensure RKE2 config dir
+  file: { path: /etc/rancher/rke2, state: directory, mode: "0755" }
+
+- name: Write agent config (join the control plane)
+  copy:
+    dest: /etc/rancher/rke2/config.yaml
+    mode: "0600"
+    content: |
+      server: https://{{ rke2_server_ip }}:9345
+      token: {{ rke2_token }}
+      node-ip: {{ int_ip }}
+      node-name: {{ inventory_hostname }}
+  notify: restart rke2-agent
+
+- name: Enable + start rke2-agent
+  systemd: { name: rke2-agent, enabled: true, state: started, daemon_reload: true }

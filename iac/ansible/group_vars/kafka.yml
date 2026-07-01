@@ -1,0 +1,54 @@
+---
+# Kafka topics created the moment the broker quorum is up (datastore phase),
+# NOT later by a k8s Job. The `kafka` role's "Create topics" task loops over this
+# list (idempotent, --if-not-exists). This overrides the role default kafka_topics: [].
+#
+# WHY THIS FILE EXISTS: the topics were originally only created by
+# k8s/kafka-topics-job.yaml, which runs in the *app phase* — long after Kafka is up.
+# Apps that produce/consume on first boot raced ahead of topic creation. Topics must
+# exist as soon as Kafka comes up. This list is the authoritative 31-topic set
+# (parity with the staging MSK / create-topics.sh). The k8s Job is kept only as an
+# in-cluster fallback; this Ansible task is now the source of truth.
+#
+# Defaults applied per topic by the role (roles/kafka/defaults/main.yml):
+#   partitions=3, replication_factor=3, min.insync.replicas=2
+# Override per topic here if a specific topic needs different settings.
+
+kafka_topics:
+  - { name: internal-events-restapi-process-later }
+  - { name: internal-events-restapi-sql-alter-query-execution }
+  - { name: internal-events-notifications-core-timer }
+  - { name: internal-events-restapi-settings }
+  - { name: internal-events-restapi-users }
+  - { name: internal-events-restapi-calls }
+  - { name: internal-events-restapi-read-receipt }
+  - { name: internal-events-restapi-sql-query-execution }
+  - { name: internal-events-websockets-connection_status }
+  - { name: internal-events-websockets-message_receipts }
+  - { name: internal-events-websockets-connections-count }
+  - { name: internal-events-moderation-messages }
+  - { name: internal-events-umc-messages-ack-by-all }
+  - { name: internal-events-restapi-friends }
+  - { name: internal-events-restapi-messages }
+  - { name: internal-events-restapi-groups }
+  - { name: internal-events-restapi-messagereactions }
+  - { name: ai-service-message-stream }
+  - { name: internal-events-restapi-message-moderation }
+  - { name: internal-events-moderation-db-changes }
+  - { name: internal-events-http_worker-failed_webhooks }
+  - { name: cometchat.internal.after.connection.status.changed }
+  - { name: internal-events-restapi-webhook }
+  - { name: internal-events-webhooks-requests }
+  - { name: internal-events-calling }
+  - { name: internal-events-restapi-webhooks }
+  - { name: internal-events-webhooks-webhook_requests }
+  - { name: internal-events-notifications-core-cache-sync }
+  - { name: internal-events-restapi-conversations }
+  - { name: internal-events-global-search-metrics }
+  - { name: internal-events-ai-agents-credit-consumption }
+  # added 2026-06-23: the websocket build SUBSCRIBES to these two, but they were absent from this list.
+  # A missing subscribed topic -> KafkaJS UNKNOWN_TOPIC_OR_PARTITION -> uncaughtException that crashed
+  # ALL websocket consumers (incl. internal-events-restapi-messages), so messages persisted to DB but
+  # were never delivered in real-time. Creating these + restarting websocket fixed it.
+  - { name: internal-events-restapi-delivered-receipt }
+  - { name: internal-events-campaigns-notifications }

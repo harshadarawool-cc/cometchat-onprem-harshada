@@ -1,0 +1,51 @@
+# ES8-compat proxy for OpenSearch. The service-search app uses elasticsearch-js 8.x, which sends
+#   Content-Type/Accept: application/vnd.elasticsearch+json; compatible-with=8
+# and expects an  X-elastic-product: Elasticsearch  response header. OpenSearch rejects the former
+# (HTTP 406) and never sends the latter. This nginx proxy rewrites both, making OpenSearch look like
+# ES8 to the client. Inserted TRANSPARENTLY: the existing `opensearch` Service is repointed to this
+# proxy, and a new `opensearch-real` Service exposes the actual OpenSearch pods (so the proxy can reach them).
+# service-search keeps using opensearch.cometchat:9200 unchanged.
+---
+apiVersion: v1
+kind: Service
+metadata: { name: opensearch-real, namespace: cometchat, labels: { app: opensearch } }
+spec:
+  selector: { app: opensearch }
+  ports: [{ name: http, port: 9200, targetPort: 9200 }, { name: transport, port: 9300, targetPort: 9300 }]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: opensearch-es8proxy-config, namespace: cometchat }
+data:
+  default.conf: |
+    server {
+      listen 9200;
+      location / {
+        proxy_pass http://opensearch-real.cometchat.svc.cluster.local:9200;
+        proxy_set_header Content-Type "application/json";
+        proxy_set_header Accept "application/json";
+        proxy_set_header Host $host;
+        # make OpenSearch responses pass the ES8 client product check
+        proxy_hide_header X-elastic-product;
+        add_header X-elastic-product "Elasticsearch" always;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: opensearch-es8proxy, namespace: cometchat, labels: { app: opensearch-es8proxy } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: opensearch-es8proxy } }
+  template:
+    metadata: { labels: { app: opensearch-es8proxy } }
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 9200 }]
+          volumeMounts: [{ name: cfg, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }]
+          readinessProbe: { tcpSocket: { port: 9200 }, periodSeconds: 10 }
+          resources: { requests: { cpu: 25m, memory: 32Mi }, limits: { cpu: 200m, memory: 128Mi } }
+      volumes:
+        - { name: cfg, configMap: { name: opensearch-es8proxy-config } }

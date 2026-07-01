@@ -1,0 +1,164 @@
+---
+# Restore MySQL dumps into the MySQL VM — PORTABLE + SKIP-IF-ABSENT.
+#   ALL dumps now ship IN THE REPO (../../dumps) so a fresh clone always seeds identically:
+#     pulsecustomerdb.sql  -> pulsecustomerdb (mgmt/app-provisioning base data)
+#     onprem-features.sql  -> pulsecustomerdb (webhooks/triggers/microservices/extensions/VCB
+#                             app-provisioning template — INSERT IGNORE, applied AFTER the mgmt dump)
+#     metrics.sql          -> metrics
+#     analytics.sql        -> analytics_logs
+#   The mgmt (pulsecustomerdb) dump is OPTIONAL: the current mgmtapi image self-provisions its base
+#   schema via `php artisan migrate --force` on boot, and the mysql role already creates the empty
+#   `pulsecustomerdb`. A missing dump is therefore fine (we just log a SKIP). onprem-features is a
+#   pure data overlay (INSERT IGNORE) that is safe to (re-)apply whenever pulsecustomerdb exists.
+#   Override any path with -e (deploy.sh passes mgmt_dump_src / repo_dumps_dir from customer.conf).
+- name: Restore MySQL dumps (mgmt + onprem-features + metrics + analytics) into the MySQL VM
+  hosts: mysql
+  become: true
+  gather_facts: false
+  vars:
+    repo_dumps_dir: "{{ playbook_dir }}/../../dumps"
+    mgmt_dump_src: "{{ repo_dumps_dir }}/pulsecustomerdb.sql"
+    onprem_features_src: "{{ repo_dumps_dir }}/onprem-features.sql"
+    metrics_dump_src: "{{ repo_dumps_dir }}/metrics.sql"
+    analytics_dump_src: "{{ repo_dumps_dir }}/analytics.sql"
+    dump_candidates:
+      # min_tables = COUNT-GUARD (Aryan discipline): after restore, a DB below this means the dump did NOT
+      # fully apply. The metrics 500 came from `metrics` landing 3/19 tables and passing silently. We now
+      # restore with `mysql --force` (one bad statement can't abort the rest) then FAIL loudly if still short.
+      - { src: "{{ mgmt_dump_src }}",      db: "pulsecustomerdb", has_create_db: false, min_tables: 20 }
+      - { src: "{{ metrics_dump_src }}",   db: "metrics",         has_create_db: true,  min_tables: 15 }
+      - { src: "{{ analytics_dump_src }}", db: "analytics_logs",  has_create_db: true,  min_tables: 15 }
+  tasks:
+    - name: Check which dump files exist (on the control host)
+      delegate_to: localhost
+      become: false
+      stat: { path: "{{ item.src }}" }
+      register: dump_stat
+      loop: "{{ dump_candidates }}"
+      loop_control: { label: "{{ item.db }}" }
+
+    - name: Note skipped (absent) dumps
+      debug:
+        msg: "SKIP {{ item.item.db }} — no dump at {{ item.item.src }} (ok: app self-migrates / empty DB already created)"
+      when: not item.stat.exists
+      loop: "{{ dump_stat.results }}"
+      loop_control: { label: "{{ item.item.db }}" }
+
+    - name: Build list of present dumps
+      set_fact:
+        dumps: "{{ dump_stat.results | selectattr('stat.exists') | map(attribute='item') | list }}"
+
+    - name: Copy present dumps to the VM
+      copy: { src: "{{ item.src }}", dest: "/tmp/{{ item.db }}.sql", mode: "0644" }
+      loop: "{{ dumps }}"
+      loop_control: { label: "{{ item.db }}" }
+
+    - name: Ensure target database exists
+      shell: mysql -u root -p'{{ vault_mysql_root_password }}' -e "CREATE DATABASE IF NOT EXISTS \`{{ item.db }}\`;"
+      loop: "{{ dumps }}"
+      loop_control: { label: "{{ item.db }}" }
+      no_log: true
+      changed_when: false
+
+    - name: Restore dump (--force so one failing statement can't abort the rest of the schema)
+      shell: mysql --force -u root -p'{{ vault_mysql_root_password }}' {{ '' if item.has_create_db else item.db }} < /tmp/{{ item.db }}.sql
+      loop: "{{ dumps }}"
+      loop_control: { label: "{{ item.db }}" }
+      no_log: true
+      changed_when: true
+
+    # --- onprem-features overlay: webhooks/triggers/microservices/extensions/VCB/app-provisioning
+    #     template rows that mgmtapi's auto-migrate does NOT seed. INSERT IGNORE => idempotent, safe
+    #     to (re-)apply. Applied AFTER the mgmt dump so pulsecustomerdb + its base schema exist.
+    - name: Check onprem-features overlay exists (on the control host)
+      delegate_to: localhost
+      become: false
+      stat: { path: "{{ onprem_features_src }}" }
+      register: features_stat
+
+    - name: Note skip when onprem-features overlay absent
+      debug:
+        msg: "SKIP onprem-features overlay — {{ onprem_features_src }} not found"
+      when: not features_stat.stat.exists
+
+    - name: Ensure pulsecustomerdb exists (overlay target)
+      shell: mysql -u root -p'{{ vault_mysql_root_password }}' -e "CREATE DATABASE IF NOT EXISTS \`pulsecustomerdb\`;"
+      when: features_stat.stat.exists
+      no_log: true
+      changed_when: false
+
+    - name: Copy onprem-features overlay to the VM
+      copy: { src: "{{ onprem_features_src }}", dest: "/tmp/onprem-features.sql", mode: "0644" }
+      when: features_stat.stat.exists
+
+    - name: Apply onprem-features overlay to pulsecustomerdb (INSERT IGNORE — idempotent)
+      shell: mysql --force -u root -p'{{ vault_mysql_root_password }}' pulsecustomerdb < /tmp/onprem-features.sql
+      when: features_stat.stat.exists
+      no_log: true
+      changed_when: true
+
+    # --- REGION-HASH SYNC (Aryan's sync-region-secret.sh equivalent) -----------------------------------
+    # mgmtapi's onprem_setup writes regions.hash from ONPREM_REGION_SECRET ONLY on a FRESH mgmt DB. A
+    # RESTORED pulsecustomerdb dump keeps a STALE hash, so every app presents the real secret but the DB
+    # authority disagrees -> region validation fails (Create App 417 / broken message routing). Sync the
+    # active region row to the canonical secret (.secrets/region_secret) so DB authority == what apps present.
+    - name: Check region secret exists (control host)
+      delegate_to: localhost
+      become: false
+      stat: { path: "{{ playbook_dir }}/../.secrets/region_secret" }
+      register: region_secret_stat
+
+    - name: Sync pulsecustomerdb.regions.hash to the canonical region secret
+      shell: >-
+        mysql --force -u root -p'{{ vault_mysql_root_password }}' pulsecustomerdb
+        -e "UPDATE regions SET hash='{{ lookup('file', playbook_dir + '/../.secrets/region_secret') | trim }}' WHERE isActive=1;"
+      when: features_stat.stat.exists and region_secret_stat.stat.exists
+      no_log: true
+      changed_when: true
+
+    - name: Verify regions.hash now matches the secret (sha8 prefix, no raw values)
+      shell: >-
+        mysql -N -u root -p'{{ vault_mysql_root_password }}' pulsecustomerdb
+        -e "SELECT CONCAT(id,'=',SUBSTRING(SHA2(hash,256),1,8)) FROM regions WHERE isActive=1;"
+      when: features_stat.stat.exists and region_secret_stat.stat.exists
+      register: region_hash_check
+      no_log: true
+      changed_when: false
+
+    - name: Report region-hash sync
+      debug: { msg: "regions.hash synced to region secret -> {{ region_hash_check.stdout_lines | default(['(skipped)']) }}" }
+      when: features_stat.stat.exists and region_secret_stat.stat.exists
+
+    - name: Verify (DB + table count)
+      shell: mysql -u root -p'{{ vault_mysql_root_password }}' -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ item.db }}';"
+      loop: "{{ dumps }}"
+      loop_control: { label: "{{ item.db }}" }
+      register: tblcount
+      no_log: true
+      changed_when: false
+
+    - name: Report
+      debug:
+        msg: "{{ item.item.db }} -> {{ item.stdout }} tables"
+      loop: "{{ tblcount.results }}"
+      loop_control: { label: "{{ item.item.db }}" }
+
+    - name: "COUNT-GUARD — fail loudly if a seeded DB is short (dump did not fully apply — the metrics 3/19 bug)"
+      assert:
+        that: "item.stdout | int >= item.item.min_tables"
+        fail_msg: >-
+          SEED INCOMPLETE: {{ item.item.db }} has only {{ item.stdout }} tables (expected >= {{ item.item.min_tables }}).
+          The {{ item.item.db }}.sql dump did not fully apply. Fix + re-run:
+          mysql --force {{ '' if item.item.has_create_db else item.item.db }} < dumps/{{ item.item.db }}.sql
+        success_msg: "{{ item.item.db }} OK ({{ item.stdout }} tables >= {{ item.item.min_tables }} min)"
+      loop: "{{ tblcount.results }}"
+      loop_control: { label: "{{ item.item.db }}" }
+
+    - name: Cleanup
+      file: { path: "/tmp/{{ item.db }}.sql", state: absent }
+      loop: "{{ dumps }}"
+      loop_control: { label: "{{ item.db }}" }
+
+    - name: Cleanup onprem-features overlay
+      file: { path: "/tmp/onprem-features.sql", state: absent }
+      when: features_stat.stat.exists

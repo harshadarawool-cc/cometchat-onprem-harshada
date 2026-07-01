@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Generate + apply manifests for the NODE-ONLY ECR apps that have NO curated manifest in
+k8s/apps/.  Each: ECR image + ecr-pull + <svc>-env mounted as .env file. websocket also mounts
+jwtrsakey.pem. Workers: no Service. dashboard: nginx-serves-the-baked-build.
+
+IMPORTANT — single source of truth (PROBLEMS I*/audit 2026-06-24):
+  Services that have a curated, digest-pinned manifest in k8s/apps/* (notificationscore,
+  globalwebhooks, service-search, analytics, metrics-pro, extensions, sql-consumer) and
+  calls-relay (k8s/apps/disabled/) are deployed by the `apps` phase ONLY. They are deliberately
+  NOT in the lists below so this script can no longer clobber them with generic, mutable-tag
+  copies. This script owns ONLY the services below — the ones with no .yaml anywhere else.
+
+Kubeconfig: KUBECONFIG env wins, else iac/kubeconfig-6444 resolved relative to this file (so a
+clean checkout on any machine works — no hardcoded /Users path)."""
+import subprocess, tempfile, os
+ECR = os.environ.get("ECR_IMAGES_REPO", "894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images")
+NS = os.environ.get("NS", "cometchat")
+_IAC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../iac
+KC = os.environ.get("KUBECONFIG", os.path.join(_IAC, "kubeconfig-6444"))
+
+# name, digest, port, env_path, health_path(None=tcp), wants_jwt
+# ONLY services with NO curated k8s/apps manifest (see header).
+# Pinned by DIGEST (immutable) — was mutable :tag. Repin from the ECR digest table when updating.
+NODE = [
+    ("websocket", "sha256:57c6d000f704f5c0f4cab6f46ca6f6ef982ab46eb3d79dc48265c58e8c2e3972", 8080, "/app/.env", "/v1/health", True),
+    ("moderationservice", "sha256:b6dcb064715215059bc7b3db4c001e912bdf0b629defc59504e5ae70b61f0f5d", 3000, "/app/.env", "/health", False),
+    ("visual-chat-builder", "sha256:58f9279b775c9ffdbef65576046506a97ea85f6b711de8d0fdf80913e2c6e204", 3000, "/app/.env", "/v1/health-check", False),
+    ("ai-agent-service", "sha256:5adf6f3fec9768699eb4df8dd9ef1962a2a4d72eed621a062e79dc0ebe7207df", 4002, "/app/.env", None, False),
+]
+# name, digest, env_path, start_cmd  (workers: no Service)
+WORKERS = [
+    # name, digest, env_path, start_cmd  (None = use the image's default entrypoint)
+    ("receipt-updater", "sha256:070b74b4a41bb7281714a866cd0b9066826e37076c384277cb67cbc0b153b41e", "/app/.env", None),
+    # The delay-worker image has NO dotenv, so worker.js's require('dotenv') silently fails and a
+    # mounted /app/.env would never load. The image is also distroless (no shell) so we can't source
+    # it with sh either. Instead we inject env vars directly via envFrom (the <name>-env secret) and
+    # run the image's native entrypoint (start_cmd=None) — no .env file, no sh.
+    ("notifications-delay-worker", "sha256:cf49d977d26e8e64f2dfc79a400bf434cea940a78e35efee08d24b5e5584807a", "/app/.env",
+     None),
+]
+
+def probe(health, port):
+    if health:
+        return f"httpGet: {{ path: {health}, port: {port} }}"
+    return f"tcpSocket: {{ port: {port} }}"
+
+def node_yaml(name, digest, port, envp, health, jwt):
+    jwt_mount = f"\n            - {{ name: jwt, mountPath: /app/jwtrsakey.pem, subPath: jwtrsakey.pem, readOnly: true }}" if jwt else ""
+    jwt_vol = "\n        - { name: jwt, secret: { secretName: jwt-public } }" if jwt else ""
+    return f"""---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {{ name: {name}, namespace: {NS}, labels: {{ app.kubernetes.io/name: {name} }} }}
+spec:
+  replicas: 1
+  selector: {{ matchLabels: {{ app.kubernetes.io/name: {name} }} }}
+  template:
+    metadata: {{ labels: {{ app.kubernetes.io/name: {name} }} }}
+    spec:
+      imagePullSecrets: [{{ name: ecr-pull }}]
+      containers:
+        - name: {name}
+          image: {ECR}@{digest}
+          ports: [{{ containerPort: {port} }}]
+          volumeMounts:
+            - {{ name: env, mountPath: {envp}, subPath: .env, readOnly: true }}{jwt_mount}
+          readinessProbe: {{ {probe(health, port)}, initialDelaySeconds: 15, periodSeconds: 10, failureThreshold: 12 }}
+          resources: {{ requests: {{ cpu: 100m, memory: 256Mi }}, limits: {{ cpu: "1", memory: 1Gi }} }}
+      volumes:
+        - {{ name: env, secret: {{ secretName: {name}-env }} }}{jwt_vol}
+---
+apiVersion: v1
+kind: Service
+metadata: {{ name: {name}, namespace: {NS}, labels: {{ app.kubernetes.io/name: {name} }} }}
+spec:
+  selector: {{ app.kubernetes.io/name: {name} }}
+  ports: [{{ name: http, port: 80, targetPort: {port} }}, {{ name: app, port: {port}, targetPort: {port} }}]
+"""
+
+def worker_yaml(name, digest, envp, cmd=None):
+    cmd_line = f'\n          command: ["sh","-c","{cmd}"]' if cmd else ""
+    return f"""---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {{ name: {name}, namespace: {NS}, labels: {{ app.kubernetes.io/name: {name} }} }}
+spec:
+  replicas: 1
+  selector: {{ matchLabels: {{ app.kubernetes.io/name: {name} }} }}
+  template:
+    metadata: {{ labels: {{ app.kubernetes.io/name: {name} }} }}
+    spec:
+      imagePullSecrets: [{{ name: ecr-pull }}]
+      containers:
+        - name: {name}
+          image: {ECR}@{digest}{cmd_line}
+          # Inject config as real env vars (image lacks dotenv; distroless has no shell to source a
+          # .env). The .env is still mounted for images that read it directly, but envFrom is the
+          # reliable path for native-entrypoint workers.
+          envFrom: [{{ secretRef: {{ name: {name}-env }} }}]
+          volumeMounts: [{{ name: env, mountPath: {envp}, subPath: .env, readOnly: true }}]
+          resources: {{ requests: {{ cpu: 100m, memory: 256Mi }}, limits: {{ cpu: "1", memory: 1Gi }} }}
+      volumes: [{{ name: env, secret: {{ secretName: {name}-env }} }}]
+"""
+
+DASHBOARD = f"""---
+apiVersion: v1
+kind: ConfigMap
+metadata: {{ name: dashboard-nginx, namespace: {NS} }}
+data:
+  default.conf: |
+    server {{ listen 80; root /usr/share/nginx/html; index index.html;
+      location = /nginx-health {{ access_log off; return 200 'ok'; }}
+      location / {{ try_files $uri $uri/ /index.html; }} }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {{ name: dashboard, namespace: {NS}, labels: {{ app.kubernetes.io/name: dashboard }} }}
+spec:
+  replicas: 1
+  selector: {{ matchLabels: {{ app.kubernetes.io/name: dashboard }} }}
+  template:
+    metadata: {{ labels: {{ app.kubernetes.io/name: dashboard }} }}
+    spec:
+      imagePullSecrets: [{{ name: ecr-pull }}]
+      initContainers:
+        - name: copy-build
+          image: {ECR}@sha256:fd2d877b093c4f7d26cfe4462bd76a34cbdd2e12a0089a2f47f857903bbb70aa
+          command: ["sh","-c","cp -r /app/build/. /web/ 2>/dev/null || cp -r /usr/share/nginx/html/. /web/ 2>/dev/null || cp -r /app/dist/. /web/; echo copied $(find /web -type f | wc -l) files"]
+          volumeMounts: [{{ name: web, mountPath: /web }}]
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{{ containerPort: 80 }}]
+          volumeMounts:
+            - {{ name: web, mountPath: /usr/share/nginx/html }}
+            - {{ name: cfg, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf }}
+          resources: {{ requests: {{ cpu: 25m, memory: 48Mi }}, limits: {{ cpu: 200m, memory: 128Mi }} }}
+      volumes:
+        - {{ name: web, emptyDir: {{}} }}
+        - {{ name: cfg, configMap: {{ name: dashboard-nginx }} }}
+---
+apiVersion: v1
+kind: Service
+metadata: {{ name: dashboard, namespace: {NS}, labels: {{ app.kubernetes.io/name: dashboard }} }}
+spec:
+  selector: {{ app.kubernetes.io/name: dashboard }}
+  ports: [{{ name: http, port: 80, targetPort: 80 }}]
+"""
+
+def apply(yaml, label):
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+        f.write(yaml); path = f.name
+    p = subprocess.run(f"kubectl --kubeconfig {KC} apply -f {path} --validate=false", shell=True, capture_output=True, text=True)
+    os.unlink(path)
+    print(f"  {label}: {'ok' if p.returncode==0 else 'FAIL '+p.stderr.strip()[:100]}")
+
+print("Node services:")
+for n in NODE: apply(node_yaml(*n), n[0])
+print("Workers:")
+for w in WORKERS: apply(worker_yaml(*w), w[0])
+print("Dashboard:")
+apply(DASHBOARD, "dashboard")

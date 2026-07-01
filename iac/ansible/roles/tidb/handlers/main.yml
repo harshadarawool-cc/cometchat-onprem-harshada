@@ -1,0 +1,5 @@
+---
+- name: Restart TiDB
+  shell: docker compose up -d
+  args:
+    chdir: /opt/tidb

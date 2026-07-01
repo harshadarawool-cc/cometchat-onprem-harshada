@@ -1,0 +1,49 @@
+# One-shot: create the isolated `etherpad` database + `etherpaduser` (mysql_native_password,
+# for Etherpad 1.8.x's legacy driver) on the mgmt MySQL (10.20.10.41). Root creds are read
+# from the EXISTING mgmtapi-env secret (.env) inside the pod — never on a command line.
+# Idempotent (IF NOT EXISTS). Delete + re-apply to re-run.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: etherpad-db-init
+  namespace: cometchat
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: mysql-init
+          image: public.ecr.aws/docker/library/mysql:8.0
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              ROOT_PW=$(grep -E '^DB_PASSWORD=' /mgmt/.env | head -1 | cut -d= -f2- | tr -d '\r')
+              ROOT_USER=$(grep -E '^DB_USERNAME=' /mgmt/.env | head -1 | cut -d= -f2- | tr -d '\r')
+              DBHOST=$(grep -E '^DB_HOST=' /mgmt/.env | head -1 | cut -d= -f2- | tr -d '\r')
+              EPW=$(cat /ep/password)
+              echo "creating etherpad DB on ${DBHOST} as ${ROOT_USER}…"
+              mysql -h "$DBHOST" -u "$ROOT_USER" -p"$ROOT_PW" <<SQL
+              CREATE DATABASE IF NOT EXISTS etherpad CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+              CREATE USER IF NOT EXISTS 'etherpaduser'@'%' IDENTIFIED WITH mysql_native_password BY '${EPW}';
+              ALTER USER 'etherpaduser'@'%' IDENTIFIED WITH mysql_native_password BY '${EPW}';
+              GRANT ALL PRIVILEGES ON etherpad.* TO 'etherpaduser'@'%';
+              FLUSH PRIVILEGES;
+              SQL
+              # Etherpad creates the `store` table on first boot; force utf8mb4 to avoid the
+              # "table is not configured with charset utf8mb4" warning + pad crashes on emoji/CJK.
+              mysql -h "$DBHOST" -u "$ROOT_USER" -p"$ROOT_PW" etherpad \
+                -e "ALTER TABLE store CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;" 2>/dev/null \
+                && echo "store table -> utf8mb4" || echo "(store table not created yet; re-run after Etherpad boots)"
+              echo "OK: etherpad DB + etherpaduser ready"
+          volumeMounts:
+            - { name: mgmt, mountPath: /mgmt, readOnly: true }
+            - { name: ep, mountPath: /ep, readOnly: true }
+      volumes:
+        - name: mgmt
+          secret: { secretName: mgmtapi-env }      # holds .env with DB_* (root)
+        - name: ep
+          secret: { secretName: etherpad-db }       # holds the new etherpaduser password

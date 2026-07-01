@@ -1,0 +1,56 @@
+services:
+  pd0:
+    image: pingcap/pd:{{ tidb_version }}
+    container_name: pd0
+    ports:
+      - "{{ int_ip }}:2379:2379"
+      - "2380:2380"
+    volumes:
+      - {{ tidb_data_dir }}/pd:/data
+    command:
+      - --name=pd0
+      - --client-urls=http://0.0.0.0:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-client-urls=http://pd0:2379
+      - --advertise-peer-urls=http://pd0:2380
+      - --data-dir=/data
+    restart: unless-stopped
+
+  tikv0:
+    image: pingcap/tikv:{{ tidb_version }}
+    container_name: tikv0
+    volumes:
+      - {{ tidb_data_dir }}/tikv:/data
+    command:
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv0:20160
+      - --pd=pd0:2379
+      - --data-dir=/data
+    depends_on: [pd0]
+    restart: unless-stopped
+
+  tidb:
+    image: pingcap/tidb:{{ tidb_version }}
+    container_name: tidb
+    ports:
+      - "{{ int_ip }}:4000:4000"
+      - "10080:10080"
+    command:
+      - --store=tikv
+      - --path=pd0:2379
+      - --advertise-address=tidb
+    depends_on: [tikv0]
+    restart: unless-stopped
+
+  tiproxy:
+    image: pingcap/tiproxy:latest
+    container_name: tiproxy
+    entrypoint: ["/bin/tiproxy"]
+    command: ["--config", "/etc/tiproxy/tiproxy.toml"]
+    ports:
+      - "{{ int_ip }}:3306:3306"
+      - "3080:3080"
+    volumes:
+      - /opt/tidb/tiproxy.toml:/etc/tiproxy/tiproxy.toml
+    depends_on: [tidb]
+    restart: unless-stopped

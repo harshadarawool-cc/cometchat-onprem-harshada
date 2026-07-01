@@ -1,0 +1,100 @@
+# SeaweedFS filer + S3 gateway. Holds the file->chunk index; serves the S3 API on :8333.
+# -encryptVolumeData => object data is AES-encrypted at rest on the volume servers (3.80 flag).
+# Internal S3 endpoint for in-cluster clients: http://seaweedfs-filer.cometchat.svc:8333
+# Secret `seaweedfs-s3-config` (s3config.json identities) is created by deploy.sh (not committed).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seaweedfs-filer-config
+  namespace: cometchat
+data:
+  filer.toml: |
+    [leveldb2]
+    enabled = true
+    dir = "/data/filerldb"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs-filer
+  namespace: cometchat
+  labels: { app: seaweedfs, component: filer }
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: { app: seaweedfs, component: filer }
+  ports:
+    - { name: http, port: 8888, targetPort: 8888 }
+    - { name: grpc, port: 18888, targetPort: 18888 }
+    - { name: s3, port: 8333, targetPort: 8333 } # the S3 endpoint cometchatFS + clients use
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seaweedfs-filer
+  namespace: cometchat
+  labels: { app: seaweedfs, component: filer }
+spec:
+  serviceName: seaweedfs-filer
+  replicas: 1 # data durability is via masters + volume replication 001; filer index on its PVC
+  selector:
+    matchLabels: { app: seaweedfs, component: filer }
+  template:
+    metadata:
+      labels: { app: seaweedfs, component: filer }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, fsGroup: 1000 }
+      containers:
+        - name: filer
+          image: chrislusf/seaweedfs:3.80@sha256:1055999e08eed1789b0ae45d235126e4495e23d3fb9d6396293fd42539b1ae6a # PINNED
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            # External URL clients reach the S3 API on — required so presigned-URL
+            # signatures verify correctly behind the ingress/LB reverse proxy.
+            - name: S3_EXTERNAL_URL
+              value: "https://s3-onprem.cometchat-cluster-2.in"
+          command: ["weed"]
+          args:
+            - "-logtostderr"
+            - "filer"
+            - "-master=seaweedfs-master-0.seaweedfs-master:9333,seaweedfs-master-1.seaweedfs-master:9333,seaweedfs-master-2.seaweedfs-master:9333"
+            - "-ip=$(POD_NAME).seaweedfs-filer"
+            - "-ip.bind=0.0.0.0"
+            - "-port=8888"
+            - "-defaultReplicaPlacement=001"
+            - "-s3"
+            - "-s3.port=8333"
+            - "-s3.config=/etc/seaweedfs/s3config.json"
+            - -s3.domainName=media-onprem.cometchat-cluster-2.in
+            - "-encryptVolumeData" # encryption at rest (3.80 flag; 4.x renamed it to -s3.encryptVolumeData)
+          ports:
+            - { containerPort: 8888, name: http }
+            - { containerPort: 18888, name: grpc }
+            - { containerPort: 8333, name: s3 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8888 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: s3config, mountPath: /etc/seaweedfs/s3config.json, subPath: s3config.json, readOnly: true }
+            - { name: filerconfig, mountPath: /etc/seaweedfs/filer.toml, subPath: filer.toml, readOnly: true }
+      volumes:
+        - name: s3config
+          secret: { secretName: seaweedfs-s3-config }
+        - name: filerconfig
+          configMap: { name: seaweedfs-filer-config }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources: { requests: { storage: 5Gi } }

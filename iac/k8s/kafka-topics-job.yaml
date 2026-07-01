@@ -1,0 +1,46 @@
+# Kafka topic bootstrap — mirrors the existing setup's pod/bash-script pattern
+# (cometchat-chat-api-infra-backend/create-topics.sh). Runs as a k8s Job against
+# the dedicated Kafka VMs (10.20.10.31-33:9092). Idempotent (--if-not-exists).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: kafka-create-topics, namespace: cometchat }
+data:
+  create-topics.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    BS="${KAFKA_BOOTSTRAP_SERVERS:-10.20.10.31:9092,10.20.10.32:9092,10.20.10.33:9092}"
+    KT=/opt/kafka/bin/kafka-topics.sh
+    BV=/opt/kafka/bin/kafka-broker-api-versions.sh
+    echo "Waiting for Kafka at $BS ..."
+    i=0; until $BV --bootstrap-server "$BS" >/dev/null 2>&1; do
+      i=$((i+1)); [ $i -gt 60 ] && { echo "timed out"; exit 1; }
+      echo "not ready ($i/60)..."; sleep 2; done
+    echo "Kafka ready. Creating topics..."
+    TOPICS="internal-events-restapi-process-later,internal-events-restapi-sql-alter-query-execution,internal-events-notifications-core-timer,internal-events-restapi-settings,internal-events-restapi-users,internal-events-restapi-calls,internal-events-restapi-read-receipt,internal-events-restapi-sql-query-execution,internal-events-websockets-connection_status,internal-events-websockets-message_receipts,internal-events-websockets-connections-count,internal-events-moderation-messages,internal-events-umc-messages-ack-by-all,internal-events-restapi-friends,internal-events-restapi-messages,internal-events-restapi-groups,internal-events-restapi-messagereactions,ai-service-message-stream,internal-events-restapi-message-moderation,internal-events-moderation-db-changes,internal-events-http_worker-failed_webhooks,cometchat.internal.after.connection.status.changed,internal-events-restapi-webhook,internal-events-webhooks-requests,internal-events-calling,internal-events-restapi-webhooks,internal-events-webhooks-webhook_requests,internal-events-notifications-core-cache-sync,internal-events-restapi-conversations,internal-events-global-search-metrics,internal-events-ai-agents-credit-consumption"
+    IFS=',' read -ra TARR <<< "$TOPICS"
+    EXIST=$($KT --bootstrap-server "$BS" --list || true)
+    for t in "${TARR[@]}"; do
+      if echo "$EXIST" | grep -qx "$t"; then echo "exists: $t";
+      else $KT --create --bootstrap-server "$BS" --replication-factor 3 --partitions 3 --topic "$t" --if-not-exists && echo "created: $t"; fi
+    done
+    echo "Total topics: $($KT --bootstrap-server "$BS" --list | wc -l)"
+    echo "DONE"
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: kafka-create-topics, namespace: cometchat }
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: create-topics
+          image: apache/kafka:3.8.0
+          command: ["bash", "/scripts/create-topics.sh"]
+          volumeMounts: [{ name: s, mountPath: /scripts }]
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 512Mi } }
+      volumes:
+        - { name: s, configMap: { name: kafka-create-topics } }

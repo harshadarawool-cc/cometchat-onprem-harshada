@@ -1,0 +1,44 @@
+# db-proxy — one in-cluster pod that bridges every datastore VM to a local port,
+# so `kubectl port-forward` (over the kube-API IAP tunnel, the ONLY datastore route
+# the firewall allows) can reach Mongo / MySQL / TiDB / Redis from a laptop.
+# Used by tunnels.sh. IPs are the static inventory int_ips (ansible/inventory/hosts.yml).
+#   27017 -> mongo primary        3306 -> mgmt MySQL (pulsecustomerdb)
+#   4000  -> TiDB (chat cod_*)     6379/80/81/82 -> redis shared/analytics/bullmq/prometrics
+apiVersion: v1
+kind: Pod
+metadata:
+  name: db-proxy
+  namespace: cometchat
+  labels:
+    app: db-proxy
+    app.kubernetes.io/part-of: cometchat
+spec:
+  containers:
+    - name: socat
+      image: alpine/socat
+      command: ["sh", "-c"]
+      args:
+        - |
+          socat TCP-LISTEN:27017,fork,reuseaddr TCP:10.20.10.11:27017 &   # mongo primary
+          socat TCP-LISTEN:3306,fork,reuseaddr  TCP:10.20.10.41:3306  &   # mgmt MySQL
+          socat TCP-LISTEN:4000,fork,reuseaddr  TCP:10.20.10.51:4000  &   # TiDB (chat)
+          socat TCP-LISTEN:6379,fork,reuseaddr  TCP:10.20.10.21:6379  &   # redis shared
+          socat TCP-LISTEN:6380,fork,reuseaddr  TCP:10.20.10.24:6379  &   # redis analytics
+          socat TCP-LISTEN:6381,fork,reuseaddr  TCP:10.20.10.61:6379  &   # redis bullmq
+          socat TCP-LISTEN:6382,fork,reuseaddr  TCP:10.20.10.27:6379  &   # redis prometrics
+          echo "db-proxy listening: 27017 3306 4000 6379 6380 6381 6382"; wait
+      ports:
+        - { containerPort: 27017 }
+        - { containerPort: 3306 }
+        - { containerPort: 4000 }
+        - { containerPort: 6379 }
+        - { containerPort: 6380 }
+        - { containerPort: 6381 }
+        - { containerPort: 6382 }
+      resources:
+        requests: { cpu: 20m, memory: 32Mi }
+        limits:   { cpu: 500m, memory: 256Mi }
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
+  restartPolicy: Always

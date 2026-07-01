@@ -1,0 +1,94 @@
+---
+- name: Install MongoDB apt keyring
+  shell: |
+    set -euo pipefail
+    curl -fsSL https://pgp.mongodb.com/server-{{ mongo_major_version }}.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-{{ mongo_major_version }}.gpg
+    chmod 0644 /usr/share/keyrings/mongodb-server-{{ mongo_major_version }}.gpg
+  args:
+    executable: /bin/bash
+    creates: "/usr/share/keyrings/mongodb-server-{{ mongo_major_version }}.gpg"
+
+- name: Configure MongoDB apt repository
+  copy:
+    dest: /etc/apt/sources.list.d/mongodb-org-{{ mongo_major_version }}.list
+    mode: "0644"
+    content: |
+      deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-{{ mongo_major_version }}.gpg ] https://repo.mongodb.org/apt/ubuntu {{ mongo_repo_codename }}/mongodb-org/{{ mongo_major_version }} multiverse
+
+- name: Install MongoDB packages
+  apt:
+    name: mongodb-org
+    state: present
+    update_cache: true
+    lock_timeout: 300
+
+- name: Stop mongod before disk init
+  systemd:
+    name: mongod
+    state: stopped
+  failed_when: false
+
+- name: Wait for attached data disk
+  wait_for:
+    path: "{{ mongo_data_disk_path }}"
+    timeout: 180
+
+- name: Check filesystem on data disk
+  command: blkid {{ mongo_data_disk_path }}
+  register: mongo_blkid
+  changed_when: false
+  failed_when: false
+
+- name: Create ext4 filesystem on data disk (if unformatted)
+  command: mkfs.ext4 -F {{ mongo_data_disk_path }}
+  when: mongo_blkid.rc != 0
+
+- name: Mount data disk at MongoDB data dir
+  mount:
+    path: "{{ mongo_data_dir }}"
+    src: "{{ mongo_data_disk_path }}"
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+
+- name: Ensure data dir ownership
+  file:
+    path: "{{ mongo_data_dir }}"
+    state: directory
+    owner: mongodb
+    group: mongodb
+    mode: "0750"
+
+- name: Create keyfile dir
+  file:
+    path: "{{ mongo_keyfile_path | dirname }}"
+    state: directory
+    owner: mongodb
+    group: mongodb
+    mode: "0750"
+
+- name: Deploy MongoDB replica-set keyfile
+  copy:
+    dest: "{{ mongo_keyfile_path }}"
+    content: "{{ mongo_keyfile_content }}\n"
+    owner: mongodb
+    group: mongodb
+    mode: "0400"
+  no_log: true
+  notify: Restart mongod
+
+- name: Deploy mongod.conf
+  template:
+    src: mongod.conf.j2
+    dest: /etc/mongod.conf
+    mode: "0644"
+  notify: Restart mongod
+
+- name: Apply config now
+  meta: flush_handlers
+
+- name: Enable + start mongod
+  systemd:
+    name: mongod
+    enabled: true
+    state: started

@@ -1,0 +1,30 @@
+---
+# Provision the Mongo users the staging app envs expect (honor "don't change envs":
+# make the datastore accept the credentials already in the envs).
+#   admin       -> Cometchat2026*        (most apps, root)
+#   extadmin    -> Q16d1Pe0DUq           (extensions, root)
+#   webhookuser -> zhyOR9TCNqlN8xRe      (globalwebhooks, root)
+# Authenticates as current admin (vault pass) on the PRIMARY, then resets admin last.
+- hosts: mongo
+  become: true
+  vars:
+    root_user: "root"                                    # existing superuser created by mongo role
+    root_pass: "{{ vault_mongo_admin_password }}"        # = zhyOR9TCNqlN8xRe
+    admin_pass: "Cometchat2026*"                          # apps connect as admin/this
+    extadmin_pass: "Q16d1Pe0DUq"
+    webhookuser_pass: "zhyOR9TCNqlN8xRe"
+  tasks:
+    - name: Create admin + extadmin + webhookuser the app envs expect (auth as root)
+      shell: |
+        mongosh "mongodb://{{ root_user }}:{{ root_pass | urlencode }}@localhost:27017/admin?authSource=admin&directConnection=true" --quiet --eval '
+          function upsert(u, p) {
+            try { db.getSiblingDB("admin").createUser({user:u, pwd:p, roles:[{role:"root", db:"admin"}]}); print("created "+u); }
+            catch(e) { db.getSiblingDB("admin").updateUser(u, {pwd:p, roles:[{role:"root", db:"admin"}]}); print("updated "+u); }
+          }
+          upsert("admin", "{{ admin_pass }}");
+          upsert("extadmin", "{{ extadmin_pass }}");
+          upsert("webhookuser", "{{ webhookuser_pass }}");
+          print("USERS NOW: " + db.getSiblingDB("admin").getUsers().users.map(u=>u.user).join(","));
+        '
+      register: mongo_out
+    - debug: { var: mongo_out.stdout_lines }

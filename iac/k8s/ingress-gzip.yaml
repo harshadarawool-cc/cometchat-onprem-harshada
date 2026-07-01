@@ -1,0 +1,24 @@
+# Enable gzip on the RKE2 ingress-nginx controller so large text assets (JS/CSS/JSON)
+# transfer ~3-4x smaller over the edge LB. This is the durable form of the live config:
+#   kubectl -n kube-system patch configmap rke2-ingress-nginx-controller --type merge \
+#     -p '{"data":{"use-gzip":"true","gzip-level":"6","gzip-min-length":"256"}}'
+# WHY: the GCP external passthrough LB intermittently throttles LARGE downloads (small reqs are
+# fine). Uncompressed dashboard JS bundles (~200KB) then time out (499) -> blank dashboard.
+# gzip shrinks them (~200KB -> ~67KB) so they stay under the LB's 30s timeout. Mitigation for the
+# deeper edge-LB slowness (which correlates with the link-preview reprocessing flood).
+#
+# RKE2 manages ingress-nginx via Helm. Apply this HelmChartConfig so gzip survives a chart
+# reconcile/rebuild (the helm-controller merges these values and redeploys the controller):
+#   kubectl apply -f ingress-gzip.yaml      # NOTE: triggers a brief ingress-nginx reload
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-ingress-nginx
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    controller:
+      config:
+        use-gzip: "true"
+        gzip-level: "6"
+        gzip-min-length: "256"

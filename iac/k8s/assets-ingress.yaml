@@ -1,0 +1,26 @@
+# Public host for sample-app demo avatars (+ any static assets), served from the SeaweedFS `assets` bucket.
+# The sample app requests https://assets.cometchat-cluster-2.in/sampleapp/v2/{users,groups}/<file>.webp;
+# rewrite prepends the bucket -> /assets/sampleapp/v2/... -> SeaweedFS S3 (:8333, anonymous read).
+# SEPARATE Ingress because the rewrite annotation is per-resource (must not affect other hosts).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: assets-onprem
+  namespace: cometchat
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /assets/$1
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [assets.cometchat-cluster-2.in]
+      secretName: wildcard-tls
+  rules:
+    - host: assets.cometchat-cluster-2.in
+      http:
+        paths:
+          - path: /(.*)
+            pathType: ImplementationSpecific
+            backend: { service: { name: seaweedfs, port: { number: 8333 } } }

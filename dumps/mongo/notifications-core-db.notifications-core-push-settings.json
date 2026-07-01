@@ -1,0 +1,429 @@
+[{
+  "_id": "cometchat_default",
+  "__v": 0,
+  "preferences": {
+    "group": {
+      "conversations": {
+        "messages": {
+          "setting": 2,
+          "override": true
+        },
+        "replies": {
+          "setting": 2,
+          "override": true
+        },
+        "quotedReplies": {
+          "setting": 2,
+          "override": true
+        }
+      },
+      "messageActions": {
+        "edit": {
+          "setting": 2,
+          "override": false
+        },
+        "delete": {
+          "setting": 2,
+          "override": false
+        },
+        "reaction": {
+          "setting": 2,
+          "override": true
+        }
+      },
+      "groupActions": {
+        "memberLeft": {
+          "setting": 1,
+          "override": true
+        },
+        "memberAdded": {
+          "setting": 1,
+          "override": true
+        },
+        "memberJoined": {
+          "setting": 1,
+          "override": true
+        },
+        "memberKicked": {
+          "setting": 1,
+          "override": true
+        },
+        "memberBanned": {
+          "setting": 1,
+          "override": true
+        },
+        "memberUnbanned": {
+          "setting": 1,
+          "override": true
+        },
+        "memberScopeChanged": {
+          "setting": 1,
+          "override": true
+        }
+      }
+    },
+    "oneOnOne": {
+      "conversations": {
+        "messages": {
+          "setting": 2,
+          "override": true
+        },
+        "replies": {
+          "setting": 2,
+          "override": true
+        },
+        "quotedReplies": {
+          "setting": 2,
+          "override": true
+        }
+      },
+      "messageActions": {
+        "edit": {
+          "setting": 2,
+          "override": false
+        },
+        "delete": {
+          "setting": 2,
+          "override": false
+        },
+        "reaction": {
+          "setting": 2,
+          "override": true
+        }
+      }
+    },
+    "mute": {
+      "dndPreference": {
+        "setting": 1,
+        "override": true
+      },
+      "schedulePreference": {
+        "setting": {
+          "monday": {
+            "from": 0,
+            "to": 2359,
+            "dnd": false
+          },
+          "tuesday": {
+            "from": 0,
+            "to": 2359,
+            "dnd": false
+          },
+          "wednesday": {
+            "from": 0,
+            "to": 2359,
+            "dnd": false
+          },
+          "thursday": {
+            "from": 0,
+            "to": 2359,
+            "dnd": false
+          },
+          "friday": {
+            "from": 0,
+            "to": 2359,
+            "dnd": false
+          },
+          "saturday": {
+            "from": 0,
+            "to": 2359,
+            "dnd": false
+          },
+          "sunday": {
+            "from": 0,
+            "to": 2359,
+            "dnd": false
+          }
+        },
+        "override": true
+      },
+      "mutedGroups": {
+        "override": true
+      },
+      "mutedOneOnOnes": {
+        "override": true
+      }
+    },
+    "timezone": {
+      "override": true,
+      "setting": "GMT"
+    },
+    "email": {
+      "notifyForUnreadOnly": {
+        "setting": true
+      },
+      "intervalInSeconds": {
+        "setting": 7200
+      },
+      "maxPerDay": {
+        "setting": 20
+      },
+      "maxPerDayPerConversation": {
+        "setting": 2
+      },
+      "includeMessageMetadata": {
+        "setting": false
+      },
+      "includeMessageObject": {
+        "setting": false
+      },
+      "includeReceiverMetadata": {
+        "setting": false
+      },
+      "includeSenderMetadata": {
+        "setting": false
+      }
+    },
+    "sms": {
+      "notifyForUnreadOnly": {
+        "setting": true
+      },
+      "intervalInSeconds": {
+        "setting": 7200
+      },
+      "maxPerDay": {
+        "setting": 20
+      },
+      "maxPerDayPerConversation": {
+        "setting": 2
+      },
+      "includeMessageMetadata": {
+        "setting": false
+      },
+      "includeMessageObject": {
+        "setting": false
+      },
+      "includeReceiverMetadata": {
+        "setting": false
+      },
+      "includeSenderMetadata": {
+        "setting": false
+      }
+    },
+    "push": {
+      "includeMessageObject": {
+        "setting": false
+      },
+      "includeSenderMetadata": {
+        "setting": true
+      },
+      "includeReceiverMetadata": {
+        "setting": true
+      },
+      "trimTextField": {
+        "setting": false
+      },
+      "includeMessageMetadata": {
+        "setting": true
+      },
+      "customJson": {}
+    },
+    "call": {
+      "initiated": {
+        "setting": 2,
+        "override": false
+      },
+      "ongoing": {
+        "setting": 2,
+        "override": false
+      },
+      "cancelled": {
+        "setting": 2,
+        "override": false
+      },
+      "rejected": {
+        "setting": 2,
+        "override": false
+      },
+      "unanswered": {
+        "setting": 2,
+        "override": false
+      },
+      "busy": {
+        "setting": 2,
+        "override": false
+      },
+      "ended": {
+        "setting": 2,
+        "override": false
+      }
+    },
+    "bypassPreferencesForMentions": false,
+    "bypassPreferencesForGroupMentions": true
+  },
+  "sound": {
+    "chat": "default",
+    "call": "default"
+  },
+  "templates": {
+    "usePrivacyTemplate": 3,
+    "textMessageTemplates": {
+      "default": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "{{message.data.text}}"
+      },
+      "privacy": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "New message"
+      }
+    },
+    "mediaMessageTemplates": {
+      "default": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body_audio": "🔈 Has sent an audio",
+        "body_file": "📄 Has sent a file",
+        "body_image": "📷 Has sent an image",
+        "body_video": "🎥 Has sent a video"
+      },
+      "privacy": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body_audio": "New audio message",
+        "body_file": "New file message",
+        "body_image": "New image message",
+        "body_video": "New video message"
+      }
+    },
+    "customMessageTemplates": {
+      "default": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "{{message.data.text}}",
+        "body_fallback": "New message"
+      },
+      "privacy": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "New message",
+        "body_fallback": "New message"
+      }
+    },
+    "interactiveFormTemplates": {
+      "default": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "{{message.data.interactiveData.title}}"
+      },
+      "privacy": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "New message"
+      }
+    },
+    "interactiveCardTemplates": {
+      "default": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "{{message.data.interactiveData.text}}"
+      },
+      "privacy": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}}",
+        "body": "New message"
+      }
+    },
+    "interactiveSchedulerTemplates": {
+      "default": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "New invite"
+      },
+      "privacy": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "New invite"
+      }
+    },
+    "interactiveCustomTemplates": {
+      "default": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "New message"
+      },
+      "privacy": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "New message"
+      }
+    },
+    "emailSubjectTemplate": {
+      "default": {
+        "subjectGroup": "New messages in {{groupDetails.name}}",
+        "subjectOneOnOne": "New messages from {{senderDetails.name}}"
+      },
+      "privacy": {
+        "subjectGroup": "New messages in {{groupDetails.name}}",
+        "subjectOneOnOne": "New messages from {{senderDetails.name}}"
+      }
+    },
+    "smsContentTemplate": {
+      "default": {
+        "bodyGroup": "You've received {{messages.length}} message(s) in {{groupDetails.name}}! Read them at https://your-website.com.",
+        "bodyOneOnOne": "You've received {{messages.length}} message(s) from {{senderDetails.name}}! Read them at https://your-website.com."
+      },
+      "privacy": {
+        "bodyGroup": "You've received {{messages.length}} message(s) in {{groupDetails.name}}! Read them at https://your-website.com.",
+        "bodyOneOnOne": "You've received {{messages.length}} message(s) from {{senderDetails.name}}! Read them at https://your-website.com."
+      }
+    },
+    "pollMessageTemplates": {
+      "default": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "Poll: {{message.data.text}}",
+        "body_fallback": "New message"
+      },
+      "privacy": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "New message",
+        "body_fallback": "New message"
+      }
+    },
+    "reminderMessageTemplates": {
+      "default": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "{{message.data.text}}",
+        "body_fallback": "New message"
+      },
+      "privacy": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "New message",
+        "body_fallback": "New message"
+      }
+    },
+    "userMentionTemplates": {
+      "default": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "bodyOneOnOne": "{{message.data.text}}",
+        "bodyGroup": "{{message.data.text}}",
+        "body_fallback": "New message"
+      },
+      "privacy": {
+        "titleOneOnOne": "{{message.data.entities.sender.entity.name}}",
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "bodyOneOnOne": "New message",
+        "bodyGroup": "New message",
+        "body_fallback": "New message"
+      }
+    },
+    "groupMentionTemplates": {
+      "default": {
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "{{message.data.text}}",
+        "body_fallback": "New message"
+      },
+      "privacy": {
+        "titleGroup": "{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}",
+        "body": "New message",
+        "body_fallback": "New message"
+      }
+    }
+  }
+}]

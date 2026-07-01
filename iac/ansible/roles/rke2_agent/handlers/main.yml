@@ -1,0 +1,5 @@
+---
+- name: restart rke2-agent
+  systemd:
+    name: rke2-agent
+    state: restarted

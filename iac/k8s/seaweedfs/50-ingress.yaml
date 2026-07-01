@@ -1,0 +1,34 @@
+# Edge routing for the parallel HA storage stack — uses the EXISTING ingress-nginx + edge LB
+# (this cluster has no LoadBalancer-service support; the package's 50-ingress-nginx.yaml LB is
+# intentionally NOT used). TLS terminates here with the wildcard-tls secret (copied into this ns
+# by deploy.sh). Both hosts are covered by the *.cometchat-cluster-2.in self-signed cert via SNI.
+#
+#   s3-onprem.cometchat-cluster-2.in  -> seaweedfs-filer:8333  (S3 API + presigned media URLs)
+#   storage.cometchat-cluster-2.in    -> cometchatfs:3300      (the web console)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: seaweedfs-ha-edge
+  namespace: cometchat
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"          # allow large object PUTs
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - s3-onprem.cometchat-cluster-2.in
+        - storage.cometchat-cluster-2.in
+      secretName: wildcard-tls
+  rules:
+    - host: s3-onprem.cometchat-cluster-2.in
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: seaweedfs-filer, port: { number: 8333 } } } }
+    - host: storage.cometchat-cluster-2.in
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: cometchatfs, port: { number: 3300 } } } }

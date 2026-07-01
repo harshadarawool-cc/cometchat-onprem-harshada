@@ -1,0 +1,56 @@
+---
+# RKE2 cluster: 1 server (control plane) + 3 agents (workers).
+# Token is generated once and persisted locally (.rke2_token) so re-runs are stable.
+
+- name: RKE2 join token (generate once, persist locally)
+  hosts: rke2_servers[0]
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Load existing RKE2 token (if any)
+      set_fact:
+        rke2_token: "{{ lookup('file', playbook_dir ~ '/.rke2_token', errors='ignore') | default('', true) | trim }}"
+    - name: Generate + persist RKE2 token if absent
+      when: rke2_token | length == 0
+      block:
+        - set_fact:
+            rke2_token: "{{ lookup('pipe', 'openssl rand -hex 32') }}"
+        - copy:
+            content: "{{ rke2_token }}"
+            dest: "{{ playbook_dir }}/.rke2_token"
+            mode: "0600"
+          delegate_to: localhost
+
+- name: RKE2 control plane
+  hosts: rke2_servers
+  become: true
+  vars:
+    rke2_token: "{{ hostvars[groups['rke2_servers'][0]].rke2_token }}"
+  roles:
+    - common
+    - rke2_server
+  post_tasks:
+    - name: Fetch kubeconfig to control machine
+      fetch:
+        src: /etc/rancher/rke2/rke2.yaml
+        dest: "{{ playbook_dir }}/kubeconfig"
+        flat: true
+      run_once: true
+    - name: Point kubeconfig at the server's private IP (reach via IAP tunnel)
+      delegate_to: localhost
+      become: false
+      replace:
+        path: "{{ playbook_dir }}/kubeconfig"
+        regexp: '127\.0\.0\.1'
+        replace: "{{ int_ip }}"
+      run_once: true
+
+- name: RKE2 agents (workers)
+  hosts: rke2_agents
+  become: true
+  vars:
+    rke2_token: "{{ hostvars[groups['rke2_servers'][0]].rke2_token }}"
+    rke2_server_ip: "{{ hostvars[groups['rke2_servers'][0]].int_ip }}"
+  roles:
+    - common
+    - rke2_agent

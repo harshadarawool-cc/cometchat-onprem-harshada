@@ -1,0 +1,55 @@
+{{/*
+mailpit — SMTP catcher for mgmtapi email testing.
+This is the simplest service: a Deployment + Service, a public image, no secrets.
+It is the reference for how a static manifest becomes a template:
+  - hard-coded namespace   -> {{ include "cometchat.namespace" . }}
+  - hard-coded image       -> {{ $svc.image }}
+  - hard-coded replicas    -> {{ $svc.replicas }}
+  - hard-coded resources   -> pulled from values with toYaml
+  - whole file guarded by  -> {{ if $svc.enabled }} ... {{ end }}
+*/}}
+{{- $svc := .Values.services.mailpit }}
+{{- if $svc.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailpit
+  namespace: {{ include "cometchat.namespace" . }}
+  labels:
+    app: mailpit
+    {{- include "cometchat.labels" . | nindent 4 }}
+spec:
+  replicas: {{ $svc.replicas }}
+  selector:
+    matchLabels:
+      app: mailpit
+  template:
+    metadata:
+      labels:
+        app: mailpit
+        {{- include "cometchat.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: mailpit
+          image: {{ $svc.image }}
+          ports:
+            - { containerPort: 1025, name: smtp }
+            - { containerPort: 8025, name: web }
+          resources:
+            {{- toYaml $svc.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailpit
+  namespace: {{ include "cometchat.namespace" . }}
+  labels:
+    app: mailpit
+    {{- include "cometchat.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: mailpit
+  ports:
+    - { name: smtp, port: 1025, targetPort: 1025 }
+    - { name: web,  port: 8025, targetPort: 8025 }
+{{- end }}

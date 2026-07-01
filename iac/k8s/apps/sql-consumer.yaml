@@ -1,0 +1,105 @@
+# sql-consumer (Node 24, bytenode-compiled .jsc) on GKE — ECR image, config via FILE (config.json).
+#
+# What it is: a Kafka consumer that applies SQL DDL/ALTER to the per-app TiDB databases. It joins
+# consumer group `conversations_queries` and reads topics:
+#   - internal-events-restapi-sql-query-execution
+#   - internal-events-restapi-sql-alter-query-execution
+# It also opens a small HTTP server on :8000 (bootstrap log "Server is running on http://0.0.0.0:8000").
+#
+# Entry: the package.json `start` (node ./dist/src/index.js) is STALE — that file does not exist.
+# The real entry is `dist/loader.js`, which does `require('bytenode'); require('./src/index.jsc')`.
+# bytenode is required INSIDE loader.js, so no `-r bytenode` flag is needed (unlike calls-relay).
+#
+# Config: the bytecode reads the literal path `./../config.json` relative to the entry module dir
+# (dist/src) -> it resolves to `/app/dist/config.json`. We mount our swapped config there via subPath.
+# The baked /app/dist/config.json is an EMPTY placeholder; our Secret mount overrides it.
+# config.json holds TiDB root password -> it is a Secret (sql-consumer-config), never a ConfigMap.
+# Datastore hosts in it are already swapped to *.db.internal (tidb-1 / kafka-1..3 / redis-primary).
+#
+# Image USER is the non-numeric name `appuser` (uid 999). With runAsNonRoot:true the kubelet cannot
+# verify a non-numeric user, so we pin runAsUser/runAsGroup: 999 explicitly (else CreateContainerConfigError).
+#
+# Probes: HTTP :8000 has no documented health route, so we probe the process via tcpSocket :8000
+# (the server only binds after Redis+Kafka init succeeds, so a bound port is a good readiness signal).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sql-consumer
+  namespace: cometchat
+  labels:
+    app.kubernetes.io/name: sql-consumer
+    app.kubernetes.io/part-of: cometchat
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    # Single Kafka consumer group member: avoid two pods fighting over partitions during rollout.
+    rollingUpdate: { maxSurge: 0, maxUnavailable: 1 }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sql-consumer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sql-consumer
+        app.kubernetes.io/part-of: cometchat
+    spec:
+      imagePullSecrets:
+        - name: ecr-pull-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999          # image USER `appuser` is non-numeric; pin uid so kubelet can verify non-root
+        runAsGroup: 999
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: sql-consumer
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:94a5add99fff2c3230fcffa3efa63321a2e1e9c39b946edb65c87338f45c23e8
+          # Native entrypoint (distroless: no shell). Image starts its bytenode loader (dist/loader.js).
+          env:
+            - { name: NODE_ENV, value: production }
+          ports:
+            - { containerPort: 8000, name: http }
+          volumeMounts:
+            # App reads ./../config.json from dist/src -> /app/dist/config.json. subPath = single file.
+            - { name: config, mountPath: /app/dist/config.json, subPath: config.json, readOnly: true }
+          startupProbe:
+            # Port binds only after Redis + Kafka consumer init; allow generous time for datastore connects.
+            tcpSocket: { port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 30      # up to ~5 min
+          readinessProbe:
+            httpGet: { path: /health-check, port: 8000 }   # real HTTP health route (200)
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health-check, port: 8000 }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 4
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false   # bytenode/Sentry write temp under /app; keep writable
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - name: config
+          secret:
+            secretName: sql-consumer-config
+---
+# It serves HTTP on :8000 (bootstrap server). Expose ClusterIP for in-cluster health/observability.
+apiVersion: v1
+kind: Service
+metadata:
+  name: sql-consumer
+  namespace: cometchat
+  labels:
+    app.kubernetes.io/name: sql-consumer
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sql-consumer
+  ports:
+    - { name: http, port: 80, targetPort: 8000 }

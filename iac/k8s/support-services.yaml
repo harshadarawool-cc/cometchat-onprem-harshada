@@ -1,0 +1,108 @@
+# In-cluster support services (cometchat ns) — standard public images, not ECR.
+# Service names match the rewritten app envs (X.cometchat.svc.cluster.local).
+---
+# ===== OpenSearch (single-node, security off) — service-search / moderation =====
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: opensearch, namespace: cometchat, labels: { app: opensearch } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: opensearch } }
+  template:
+    metadata: { labels: { app: opensearch } }
+    spec:
+      initContainers:
+        - name: sysctl
+          image: busybox:1.36
+          command: ["sh", "-c", "sysctl -w vm.max_map_count=262144"]
+          securityContext: { privileged: true }
+      containers:
+        - name: opensearch
+          image: opensearchproject/opensearch:2.17.1
+          env:
+            - { name: discovery.type, value: single-node }
+            - { name: DISABLE_SECURITY_PLUGIN, value: "true" }
+            - { name: DISABLE_INSTALL_DEMO_CONFIG, value: "true" }
+            - { name: OPENSEARCH_JAVA_OPTS, value: "-Xms512m -Xmx512m" }
+            - { name: bootstrap.memory_lock, value: "false" }
+          ports: [{ containerPort: 9200 }, { containerPort: 9300 }]
+          volumeMounts: [{ name: data, mountPath: /usr/share/opensearch/data }]
+          resources: { requests: { cpu: 300m, memory: 1Gi }, limits: { cpu: "1", memory: 2Gi } }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: opensearch-data }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: opensearch-data, namespace: cometchat }
+spec: { accessModes: [ReadWriteOnce], resources: { requests: { storage: 20Gi } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: opensearch, namespace: cometchat, labels: { app: opensearch } }
+spec:
+  selector: { app: opensearch }
+  ports: [{ name: http, port: 9200, targetPort: 9200 }, { name: transport, port: 9300, targetPort: 9300 }]
+---
+# ===== Ollama — local LLM for moderation vision =====
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: ollama, namespace: cometchat, labels: { app: ollama } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: ollama } }
+  template:
+    metadata: { labels: { app: ollama } }
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.5.7
+          ports: [{ containerPort: 11434 }]
+          volumeMounts: [{ name: models, mountPath: /root/.ollama }]
+          resources: { requests: { cpu: 500m, memory: 2Gi }, limits: { cpu: "2", memory: 6Gi } }
+      volumes:
+        - name: models
+          persistentVolumeClaim: { claimName: ollama-models }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: ollama-models, namespace: cometchat }
+spec: { accessModes: [ReadWriteOnce], resources: { requests: { storage: 20Gi } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: ollama, namespace: cometchat, labels: { app: ollama } }
+spec:
+  selector: { app: ollama }
+  ports: [{ name: http, port: 11434, targetPort: 11434 }]
+---
+# ===== Mailpit — SMTP catcher for mgmtapi email testing =====
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: mailpit, namespace: cometchat, labels: { app: mailpit } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: mailpit } }
+  template:
+    metadata: { labels: { app: mailpit } }
+    spec:
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:v1.20
+          ports: [{ containerPort: 1025, name: smtp }, { containerPort: 8025, name: web }]
+          resources: { requests: { cpu: 25m, memory: 48Mi }, limits: { cpu: 200m, memory: 192Mi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: mailpit, namespace: cometchat, labels: { app: mailpit } }
+spec:
+  selector: { app: mailpit }
+  ports: [{ name: smtp, port: 1025, targetPort: 1025 }, { name: web, port: 8025, targetPort: 8025 }]
+---
+# ===== SeaweedFS object storage — RETIRED single-pod; replaced by the HA stack =====
+# The single-pod `seaweedfs` (weed server all-in-one) was consolidated into the HA
+# SeaweedFS + cometchatFS console package, deployed into THIS namespace by
+#   k8s/seaweedfs/deploy.sh   (3 masters + 3 volumes + filer/S3 + console).
+# The in-cluster name `seaweedfs.cometchat:8333` is preserved by k8s/seaweedfs/35-s3-service.yaml
+# (an alias Service that targets the HA filer), so apps need no endpoint change.
+# See k8s/seaweedfs/ and docs/ for the consolidated store. Do NOT re-add a single-pod here.

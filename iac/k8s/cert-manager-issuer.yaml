@@ -1,0 +1,79 @@
+# Let's Encrypt (production) via Route53 DNS-01 for cometchat-cluster-2.in.
+# cert-manager creates the _acme-challenge TXT records in Route53 automatically.
+# The controller is patched with --dns01-recursive-nameservers-only=8.8.8.8/1.1.1.1 so its
+# self-check bypasses the in-cluster split-horizon CoreDNS (which intercepts this domain).
+# Route53 creds: secret 'route53-credentials' (key secret-access-key) in ns cert-manager.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-route53
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: harshada.rawool@cometchat.com
+    privateKeySecretRef:
+      name: letsencrypt-route53-account-key
+    solvers:
+      - dns01:
+          route53:
+            region: us-east-2
+            hostedZoneID: Z04640112BJ8TJHK3I2RI
+            accessKeyID: __AWS_ACCESS_KEY_ID__   # rendered by deploy.sh phase_certs from `aws configure get aws_access_key_id`
+            secretAccessKeySecretRef:
+              name: route53-credentials
+              key: secret-access-key
+        selector:
+          dnsZones:
+            - cometchat-cluster-2.in
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cometchat-wildcard
+  namespace: cometchat
+spec:
+  secretName: wildcard-tls          # replaces the self-signed secret the ingress already uses
+  issuerRef:
+    name: letsencrypt-route53
+    kind: ClusterIssuer
+  commonName: cometchat-cluster-2.in
+  dnsNames:
+    - cometchat-cluster-2.in
+    # --- public (explicit per-host SANs; NO domain-wide wildcard) ---
+    - app.cometchat-cluster-2.in
+    - apimgmt.cometchat-cluster-2.in
+    - api-onprem.cometchat-cluster-2.in
+    - apiclient-onprem.cometchat-cluster-2.in
+    - websocket-onprem.cometchat-cluster-2.in
+    - extensions-onprem.cometchat-cluster-2.in
+    - media-onprem.cometchat-cluster-2.in
+    - "*.media-onprem.cometchat-cluster-2.in"
+    - files-onprem.cometchat-cluster-2.in
+    # --- extension features (public; bare extensions-onprem stays internal) + editor iframes + sticker host ---
+    - stickers-onprem.cometchat-cluster-2.in
+    - polls-onprem.cometchat-cluster-2.in
+    - link-preview-onprem.cometchat-cluster-2.in
+    - thumbnail-generator-onprem.cometchat-cluster-2.in
+    - document-onprem.cometchat-cluster-2.in
+    - whiteboard-onprem.cometchat-cluster-2.in
+    - document-embed-onprem.cometchat-cluster-2.in
+    - whiteboard-embed-onprem.cometchat-cluster-2.in
+    - data-onprem.cometchat-cluster-2.in
+    # --- object-store console + S3 host (public; the cometchatFS admin UI + presigned downloads) ---
+    - storage.cometchat-cluster-2.in
+    - s3-onprem.cometchat-cluster-2.in
+    - metrics-onprem.cometchat-cluster-2.in
+    # --- internal (cert needed for app->app TLS; no public A record) ---
+    - webhooks-onprem.cometchat-cluster-2.in
+    - notifications-onprem.cometchat-cluster-2.in
+    - rule-onprem.cometchat-cluster-2.in
+    - internal-search-onprem.cometchat-cluster-2.in
+    - internal-vcb-onprem.cometchat-cluster-2.in
+    - metrics-pro-onprem.cometchat-cluster-2.in
+    - mail.cometchat-cluster-2.in
+    - test.antivirus.cometchat-cluster-2.in
+    # --- scoped per-app wildcards (the {appId}. SDK pattern; narrow, not domain-wide) ---
+    - "*.api-onprem.cometchat-cluster-2.in"
+    - "*.apiclient-onprem.cometchat-cluster-2.in"
+    - "*.websocket-onprem.cometchat-cluster-2.in"
+    - "*.extensions-onprem.cometchat-cluster-2.in"

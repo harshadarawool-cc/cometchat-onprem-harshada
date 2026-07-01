@@ -1,0 +1,934 @@
+[{
+  "_id": {
+    "$oid": "69c4bb6e407052ac45ab9c71"
+  },
+  "id": "virus_malware_scanner",
+  "name": "Malware & Virus Scanner",
+  "description": "Scans file attachments for malware and viruses using ClamAV",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": false,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "image",
+      "category": "virus_malware_scanner",
+      "operator": "contains",
+      "value": [],
+      "message": "Image attachment contains malware or virus"
+    },
+    {
+      "id": 2,
+      "isKeywordsReferencePresent": false,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "video",
+      "category": "virus_malware_scanner",
+      "operator": "contains",
+      "value": [],
+      "message": "Video attachment contains malware or virus"
+    },
+    {
+      "id": 3,
+      "isKeywordsReferencePresent": false,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "file",
+      "category": "virus_malware_scanner",
+      "operator": "contains",
+      "value": [],
+      "message": "File attachment contains malware or virus"
+    },
+    {
+      "id": 4,
+      "isKeywordsReferencePresent": false,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "audio",
+      "category": "virus_malware_scanner",
+      "operator": "contains",
+      "value": [],
+      "message": "Audio attachment contains malware or virus"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684800,
+  "updatedAt": 1708684800,
+  "revisionId": "default_malware-virus-scanner_1",
+  "default": true
+},
+{
+  "_id": {
+    "$oid": "67baccfc263618198ee10967"
+  },
+  "id": "explicit-inappropriate-content",
+  "name": "Explicit or Inappropriate Content Prompt (All Languages)",
+  "description": "A predefined OpenAI moderation prompt to detect explicit sexual descriptions, graphic violence, or other unsuitable text.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "text",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "explicit-inappropriate-content_greaterThan_70"
+      ],
+      "message": "Text or Custom message contains keywords from the Explicit Content Detection list"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684800,
+  "updatedAt": 1708684800,
+  "revisionId": "default_explicit-inappropriate-content_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bacced263618198ee10965"
+  },
+  "id": "privacy-sensitive-info",
+  "name": "Privacy and Sensitive Info Prompt (All Languages)",
+  "description": "A predefined OpenAI moderation prompt to identify personal or sensitive information shared without consent.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "text",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "privacy-sensitive-info_greaterThan_70"
+      ],
+      "message": "Text or Custom message contains keywords from the Privacy and Sensitive Info Detection list"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684800,
+  "updatedAt": 1708684800,
+  "revisionId": "default_privacy-sensitive-info_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bacc35263618198ee10963"
+  },
+  "id": "hate-harassment",
+  "name": "Hate and Harassment Prompt (All Languages)",
+  "description": "A predefined OpenAI moderation prompt to detect hateful or harassing language toward individuals or groups.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "text",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "hate-harassment_greaterThan_70"
+      ],
+      "message": "Text or Custom message contains keywords from the Hate and Harassment Detection list"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684800,
+  "updatedAt": 1708684800,
+  "revisionId": "default_hate-harassment_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bacd7c263618198ee10971"
+  },
+  "id": "self-harm-suicidal-content",
+  "name": "Self-Harm or Suicidal Content Prompt (All Languages)",
+  "description": "A predefined OpenAI moderation prompt to detect messages suggesting self-harm, suicidal thoughts, or related instructions.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "text",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "self-harm-suicidal-content_greaterThan_70"
+      ],
+      "message": "Text or Custom message contains keywords from the Self-Harm or Suicidal Content Detection list"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684800,
+  "updatedAt": 1708684800,
+  "revisionId": "default_self-harm-suicidal-content_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bacd6d263618198ee1096f"
+  },
+  "id": "impersonation-fraud",
+  "name": "Impersonation or Fraud Prompt (All Languages)",
+  "description": "A predefined OpenAI moderation prompt to detect deceptive attempts to impersonate individuals or organizations.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "text",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "impersonation-fraud_greaterThan_70"
+      ],
+      "message": "Text or Custom message contains keywords from the Impersonation or Fraud Detection list"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684800,
+  "updatedAt": 1708684800,
+  "revisionId": "default_impersonation-fraud_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bacd24263618198ee1096b"
+  },
+  "id": "violent-threats",
+  "name": "Violent or Terroristic Threats Prompt (All Languages)",
+  "description": "A predefined OpenAI moderation prompt to detect content that encourages, promotes, or glorifies violence or extremism.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "text",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "violent-threats_greaterThan_70"
+      ],
+      "message": "Text or Custom message contains keywords from the Violent or Terroristic Threats Detection list"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684800,
+  "updatedAt": 1708684800,
+  "revisionId": "default_violent-threats_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bacd54263618198ee1096d"
+  },
+  "id": "non-consensual-sexual-content",
+  "name": "Non-Consensual Sexual Content or Exploitation Prompt (All Languages)",
+  "description": "A predefined OpenAI moderation prompt to detect sexual exploitation, grooming, or non-consensual content.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "text",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "non-consensual-sexual-content_greaterThan_70"
+      ],
+      "message": "Text or Custom message contains keywords from the Non-Consensual Sexual Content Detection list"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684800,
+  "updatedAt": 1708684800,
+  "revisionId": "default_non-consensual-sexual-content_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bacd08263618198ee10969"
+  },
+  "id": "spam-scam",
+  "name": "Spam and Scam Prompt (All Languages)",
+  "description": "A predefined OpenAI moderation prompt to identify spam messages, phishing attempts, and fraudulent schemes.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "text",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "spam-scam_greaterThan_70"
+      ],
+      "message": "Text or Custom message contains keywords from the Spam and Scam Detection list"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684800,
+  "updatedAt": 1708684800,
+  "revisionId": "default_spam-scam_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "668cbdf3d80a7082c98568a7"
+  },
+  "id": "video-moderation",
+  "name": "Unsafe & Prohibited Content",
+  "description": "Use CometChat's internal AI to detect unsafe or prohibited content in video files.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": false,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "video",
+      "category": "word",
+      "operator": "contains",
+      "value": [
+        "Any unsafe content_greaterThan_70"
+      ],
+      "message": "Video message contains any unsafe content greater than 70%",
+      "_id": {
+        "$oid": "668cbdf3d80a7082c98568a8"
+      }
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1718350199,
+  "updatedAt": 1720499699,
+  "revisionId": "default_video-moderation_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "668cbdf5d80a7082c98568b0"
+  },
+  "id": "contact_details_filter",
+  "name": "Contact Details Removal",
+  "description": "Identifies and removes phone numbers from text using pattern matching.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": false,
+      "isMediaPresent": false,
+      "entity": "message",
+      "operand": "text",
+      "category": "pattern",
+      "operator": "contains",
+      "value": [
+        "\\+?(\\d{1,3})?[-.\\s]?\\(?\\d{2,4}\\)?[-.\\s]?\\d{3,4}[-.\\s]?\\d{3,4}(?:[-.\\s]?\\d{1,4})?"
+      ],
+      "message": "Text message contains a pattern matching a phone number",
+      "_id": {
+        "$oid": "668cbdf5d80a7082c98568b1"
+      }
+    },
+    {
+      "id": 2,
+      "isKeywordsReferencePresent": false,
+      "isMediaPresent": false,
+      "entity": "message",
+      "operand": "custom",
+      "category": "pattern",
+      "operator": "contains",
+      "value": [
+        "\\+?(\\d{1,3})?[-.\\s]?\\(?\\d{2,4}\\)?[-.\\s]?\\d{3,4}[-.\\s]?\\d{3,4}(?:[-.\\s]?\\d{1,4})?"
+      ],
+      "message": "Custom message contains a pattern matching a phone number",
+      "_id": {
+        "$oid": "668cbdf5d80a7082c98568b2"
+      }
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1718186338,
+  "updatedAt": 1720499701,
+  "revisionId": "2531882e5e289115_contact_details_filter_7",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "668cbdf2d80a7082c98568a0"
+  },
+  "id": "profanity-filter",
+  "name": "Profanity Detection (English)",
+  "description": "Identifies profane or offensive words in English text using a word-matching approach.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": false,
+      "entity": "message",
+      "operand": "text",
+      "category": "word",
+      "operator": "contains",
+      "value": [
+        "profanity-list"
+      ],
+      "message": "Text or Custom message contains keywords from the Profane Words list",
+      "_id": {
+        "$oid": "668cbdf2d80a7082c98568a1"
+      }
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1718355386,
+  "updatedAt": 1720499698,
+  "revisionId": "253157108b5294c4_profanity-filter_32",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "6703aa92e35a7b44e2092be7"
+  },
+  "id": "spam-detection",
+  "name": "Spam Detection (English)",
+  "description": "Use CometChat's internal AI to detect spam messages in English.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "text",
+      "category": "sentence-similarity",
+      "operator": "contains",
+      "value": [
+        "spam-detection_greaterThan_50"
+      ],
+      "message": "Text or Custom message contains keywords from the Spam Detection list"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1718350200,
+  "updatedAt": 1720510676,
+  "revisionId": "253157108b5294c4_spam-detection_14",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "6703aa6ae35a7b44e2092be5"
+  },
+  "id": "scam-detection",
+  "name": "Scam Detection (English)",
+  "description": "Use CometChat's internal AI to detect scam or fraudulent text in English.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "text",
+      "category": "sentence-similarity",
+      "operator": "contains",
+      "value": [
+        "scam-detection_greaterThan_50"
+      ],
+      "message": "Text or Custom message contains keywords from the Scam Detection list"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1718350200,
+  "updatedAt": 1720510676,
+  "revisionId": "253157108b5294c4_scam-detection_14",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "6703aaf2e35a7b44e2092be9"
+  },
+  "id": "platform-circumvention",
+  "name": "Platform Circumvention (English)",
+  "description": "Use CometChat's internal AI to identify and prevent attempts to bypass platform rules or restrictions in English.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": false,
+      "entity": "message",
+      "operand": "text",
+      "category": "sentence-similarity",
+      "operator": "contains",
+      "value": [
+        "platform-circumvention_greaterThan_50"
+      ],
+      "message": "Text or Custom contains keywords from Platform Circumvention list"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1718350200,
+  "updatedAt": 1720510676,
+  "revisionId": "253157108b5294c4_platform-circumvention_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "6685695bb4bf371ddfba84c7"
+  },
+  "id": "email_filter",
+  "name": "Email Detection",
+  "description": "Identifies and removes email addresses from messages using regex-based pattern matching.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": false,
+      "isMediaPresent": false,
+      "entity": "message",
+      "operand": "text",
+      "category": "pattern",
+      "operator": "contains",
+      "value": [
+        "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+      ],
+      "message": "Text message contains a pattern matching an email address",
+      "_id": {
+        "$oid": "6685695bb4bf371ddfba84c8"
+      }
+    },
+    {
+      "id": 2,
+      "isKeywordsReferencePresent": false,
+      "isMediaPresent": false,
+      "entity": "message",
+      "operand": "custom",
+      "category": "pattern",
+      "operator": "contains",
+      "value": [
+        "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+      ],
+      "message": "Custom message contains a pattern matching an email address",
+      "_id": {
+        "$oid": "6685695bb4bf371ddfba84c9"
+      }
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1718099938,
+  "updatedAt": 1720019291,
+  "revisionId": "2531882e5e289115_contact_email_filter_7",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "668ce8d4d80a7082c9856ad1"
+  },
+  "id": "image-moderation",
+  "name": "Unsafe & Prohibited Content",
+  "description": "Use CometChat's internal AI to detect unsafe or prohibited content in images.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": false,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "image",
+      "category": "word",
+      "operator": "contains",
+      "value": [
+        "Any unsafe content_greaterThan_70"
+      ],
+      "message": "Image message contains any unsafe content greater than 70%",
+      "_id": {
+        "$oid": "668ce8d4d80a7082c9856ad2"
+      }
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1718350200,
+  "updatedAt": 1720510676,
+  "revisionId": "253157108b5294c4_image-moderation_14",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "66d192168b540808a05c5d76"
+  },
+  "id": "toxicity",
+  "name": "Toxicity Detection (English)",
+  "description": "Use CometChat's internal AI in English to detect and flag toxic or harmful language in text.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": false,
+      "isMediaPresent": false,
+      "entity": "message",
+      "operand": "text",
+      "category": "toxicity",
+      "operator": "contains",
+      "value": [
+        "toxicity_greaterThan_70"
+      ],
+      "message": "Text message contains Toxicity greater than 70%"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1718350199,
+  "updatedAt": 1720499699,
+  "default": true,
+  "revisionId": "default_toxicity_1"
+},
+{
+  "_id": {
+    "$oid": "67bb4349263618198ee10981"
+  },
+  "id": "terrorism-or-extremist-promotion",
+  "name": "Terrorism or Extremist Promotion Prompt",
+  "description": "A predefined OpenAI moderation prompt to detect extremist propaganda, terrorist symbols, or images promoting violent ideologies.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "image",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "terrorism-or-extremist-promotion_greaterThan_70"
+      ],
+      "message": "Image message contains terrorism or extremist promotion content greater than 70%"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_terrorism-or-extremist-promotion_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bb4325263618198ee1097d"
+  },
+  "id": "minor-safety-and-exploitation",
+  "name": "Minor Safety and Exploitation Prompt",
+  "description": "A predefined OpenAI moderation prompt to detect child sexual content, exploitative imagery of minors, or unsafe depictions of children.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "image",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "minor-safety-and-exploitation_greaterThan_70"
+      ],
+      "message": "Image message contains minor safety and exploitation content greater than 70%"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_minor-safety-and-exploitation_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bb430f263618198ee1097b"
+  },
+  "id": "self-harm-or-suicidal-content",
+  "name": "Self-Harm or Suicidal Content Prompt",
+  "description": "A predefined OpenAI moderation prompt to detect imagery suggesting self-harm, suicidal ideation, or content that promotes self-injury.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "image",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "self-harm-or-suicidal-content_greaterThan_70"
+      ],
+      "message": "Image message contains self-harm or suicidal content greater than 70%"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_self-harm-or-suicidal-content_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bb42a2263618198ee10979"
+  },
+  "id": "privacy-or-personal-data",
+  "name": "Privacy or Personal Data Prompt",
+  "description": "A predefined OpenAI moderation prompt to identify images containing personal or sensitive data, such as IDs, addresses, or financial documents.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "image",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "privacy-or-personal-data_greaterThan_70"
+      ],
+      "message": "Image message contains privacy or personal data greater than 70%"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_privacy-or-personal-data_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bb428f263618198ee10977"
+  },
+  "id": "graphic-violence-or-gore",
+  "name": "Graphic Violence or Gore Prompt",
+  "description": "A predefined OpenAI moderation prompt to detect images of extreme violence, gore, or other disturbing content.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "image",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "graphic-violence-or-gore_greaterThan_70"
+      ],
+      "message": "Image message contains graphic violence or gore greater than 70%"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_graphic-violence-or-gore_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bb427a263618198ee10975"
+  },
+  "id": "explicit-or-sexual-content",
+  "name": "Explicit or Sexual Content Prompt",
+  "description": "A predefined OpenAI moderation prompt to identify nudity, explicit sexual content, or suggestive imagery unsuitable for general audiences.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "image",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "explicit-or-sexual-content_greaterThan_70"
+      ],
+      "message": "Image message contains explicit or sexual content greater than 70%"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_explicit-or-sexual-content_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bb426c263618198ee10973"
+  },
+  "id": "hate-or-harassment",
+  "name": "Hate or Harassment Prompt",
+  "description": "A predefined OpenAI moderation prompt to detect hate symbols, extremist insignia, and harassing imagery.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "image",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "hate-or-harassment_greaterThan_70"
+      ],
+      "message": "Image message contains hate or harassment content greater than 70%"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_hate-or-harassment_1",
+  "default": true,
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "67bb433c263618198ee1097f"
+  },
+  "id": "fraud-or-scam-indicators",
+  "name": "Fraud or Scam Indicators Prompt",
+  "description": "A predefined OpenAI moderation prompt to flag manipulated or fraudulent images, such as fake IDs or doctored screenshots.",
+  "enabled": false,
+  "conditions": [
+    {
+      "id": 1,
+      "isKeywordsReferencePresent": true,
+      "isMediaPresent": true,
+      "entity": "message",
+      "operand": "image",
+      "category": "open-ai",
+      "operator": "contains",
+      "value": [
+        "fraud-or-scam-indicators_greaterThan_70"
+      ],
+      "message": "Image message contains fraud or scam indicators greater than 70%"
+    }
+  ],
+  "action": [
+    "blockMessage"
+  ],
+  "active": true,
+  "createdAt": 1708684802,
+  "updatedAt": 1708684802,
+  "revisionId": "default_fraud-or-scam-indicators_1",
+  "default": true,
+  "__v": 0
+}]

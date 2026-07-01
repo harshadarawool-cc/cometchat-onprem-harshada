@@ -1,0 +1,126 @@
+# Edge ingress, SPLIT into two Ingress resources on the SAME ingress-nginx controller:
+#   cometchat-edge      = PUBLIC hosts (internet-facing via the edge LB).
+#   cometchat-internal  = INTERNAL hosts (app->app only) + whitelist-source-range to the cluster
+#                         CIDRs, so even a Host-header request to the LB IP gets 403 from outside.
+# Both terminate TLS with wildcard-tls (the explicit-SAN Let's Encrypt cert; no domain wildcard).
+# Public DNS exists only for the public hosts; internal hosts resolve in-cluster via CoreDNS.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cometchat-edge
+  namespace: cometchat
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - app.cometchat-cluster-2.in
+        - apimgmt.cometchat-cluster-2.in
+        - api-onprem.cometchat-cluster-2.in
+        - apiclient-onprem.cometchat-cluster-2.in
+        - websocket-onprem.cometchat-cluster-2.in
+        - metrics-onprem.cometchat-cluster-2.in
+        # extensions host (PUBLIC — the dashboard/SDK call it client-side: extensions-onprem/<feature>/...)
+        # + editor iframes + sticker host. The admin/settings calls are gated by app auth tokens.
+        - extensions-onprem.cometchat-cluster-2.in
+        - "*.extensions-onprem.cometchat-cluster-2.in"
+        - stickers-onprem.cometchat-cluster-2.in
+        - polls-onprem.cometchat-cluster-2.in
+        - link-preview-onprem.cometchat-cluster-2.in
+        - thumbnail-generator-onprem.cometchat-cluster-2.in
+        - notifications-onprem.cometchat-cluster-2.in
+        - document-onprem.cometchat-cluster-2.in
+        - whiteboard-onprem.cometchat-cluster-2.in
+        - document-embed-onprem.cometchat-cluster-2.in
+        - whiteboard-embed-onprem.cometchat-cluster-2.in
+        - data-onprem.cometchat-cluster-2.in
+        - media-onprem.cometchat-cluster-2.in
+        - "*.media-onprem.cometchat-cluster-2.in"
+        - files-onprem.cometchat-cluster-2.in
+        - api.cometchat.com
+        - apiclient-onprem.cometchat.com
+        - "*.api-onprem.cometchat-cluster-2.in"
+        - "*.apiclient-onprem.cometchat-cluster-2.in"
+        - "*.websocket-onprem.cometchat-cluster-2.in"
+        - "*.api-onprem.cometchat.com"
+        - "*.apiclient-onprem.cometchat.com"
+      secretName: wildcard-tls
+  rules:
+    - { host: app.cometchat-cluster-2.in,                 http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: dashboard,           port: { number: 80 } } } }] } }
+    - { host: apimgmt.cometchat-cluster-2.in,             http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: mgmtapi,             port: { number: 80 } } } }] } }
+    - { host: api-onprem.cometchat-cluster-2.in,          http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: chatapi,             port: { number: 80 } } } }] } }
+    - { host: apiclient-onprem.cometchat-cluster-2.in,    http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: chatapi,             port: { number: 80 } } } }] } }
+    - { host: websocket-onprem.cometchat-cluster-2.in,    http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: websocket,           port: { number: 80 } } } }] } }
+    - { host: metrics-onprem.cometchat-cluster-2.in,      http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: analytics,           port: { number: 80 } } } }] } }
+    # extensions host — PUBLIC/external (the dashboard + chat SDK call extensions-onprem/<feature>/...
+    # client-side, e.g. /stickers/v1/show-setting). Admin/settings calls are gated by app auth tokens.
+    - { host: extensions-onprem.cometchat-cluster-2.in,   http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: extensions,          port: { number: 80 } } } }] } }
+    - { host: "*.extensions-onprem.cometchat-cluster-2.in", http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: extensions,          port: { number: 80 } } } }] } }
+    # per-feature subdomains (also public; the SDK may use these or the path-based form on extensions-onprem)
+    - { host: stickers-onprem.cometchat-cluster-2.in,     http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: extensions,          port: { number: 80 } } } }] } }
+    - { host: polls-onprem.cometchat-cluster-2.in,        http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: extensions,          port: { number: 80 } } } }] } }
+    - { host: link-preview-onprem.cometchat-cluster-2.in, http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: extensions,          port: { number: 80 } } } }] } }
+    - { host: thumbnail-generator-onprem.cometchat-cluster-2.in, http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: extensions,          port: { number: 80 } } } }] } }
+    # notifications — PUBLIC (matches the colleague's R53; SDK/dashboard may call it client-side)
+    - { host: notifications-onprem.cometchat-cluster-2.in, http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: notificationscore,   port: { number: 80 } } } }] } }
+    - { host: document-onprem.cometchat-cluster-2.in,     http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: extensions,          port: { number: 80 } } } }] } }
+    - { host: whiteboard-onprem.cometchat-cluster-2.in,   http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: extensions,          port: { number: 80 } } } }] } }
+    # editor IFRAMES -> their own editor services (WebSocket; ingress-nginx auto-upgrades, timeouts 3600 set)
+    - { host: document-embed-onprem.cometchat-cluster-2.in,   http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: document-embed,      port: { number: 80 } } } }] } }
+    - { host: whiteboard-embed-onprem.cometchat-cluster-2.in, http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: whiteboard,          port: { number: 80 } } } }] } }
+    # sticker PNG host: extensions builds https://data-onprem/.../stickers/...png -> seaweedfs (anon read)
+    - { host: data-onprem.cometchat-cluster-2.in,         http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: seaweedfs,           port: { number: 8333 } } } }] } }
+    - { host: media-onprem.cometchat-cluster-2.in,        http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: seaweedfs,           port: { number: 8333 } } } }] } }
+    - { host: "*.media-onprem.cometchat-cluster-2.in",     http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: seaweedfs,           port: { number: 8333 } } } }] } }
+    - { host: files-onprem.cometchat-cluster-2.in,        http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: seaweedfs,           port: { number: 8333 } } } }] } }
+    # data-plane redirect: the dashboard SDK hardcodes the public CometChat host -> keep it on-prem
+    - { host: api.cometchat.com,                          http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: chatapi,             port: { number: 80 } } } }] } }
+    - { host: apiclient-onprem.cometchat.com,             http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: chatapi,             port: { number: 80 } } } }] } }
+    # per-app data hosts: {appId}.api-onprem.* / {appId}.apiclient-onprem.* -> chatapi
+    - { host: "*.api-onprem.cometchat-cluster-2.in",       http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: chatapi,             port: { number: 80 } } } }] } }
+    - { host: "*.apiclient-onprem.cometchat-cluster-2.in", http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: chatapi,             port: { number: 80 } } } }] } }
+    # per-app websocket hosts: {appId}.websocket-onprem.* -> websocket
+    - { host: "*.websocket-onprem.cometchat-cluster-2.in", http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: websocket,           port: { number: 80 } } } }] } }
+    - { host: "*.api-onprem.cometchat.com",                http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: chatapi,             port: { number: 80 } } } }] } }
+    - { host: "*.apiclient-onprem.cometchat.com",          http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: chatapi,             port: { number: 80 } } } }] } }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cometchat-internal
+  namespace: cometchat
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # app->app only: pods (10.42), services (10.43), VM subnets (10.20). External client IPs (preserved
+    # by the L4 LB) are NOT in these ranges -> 403, so a Host-header request to the LB IP is rejected.
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.42.0.0/16,10.43.0.0/16,10.20.0.0/16"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - webhooks-onprem.cometchat-cluster-2.in
+        - rule-onprem.cometchat-cluster-2.in
+        - test.antivirus.cometchat-cluster-2.in
+        - metrics-pro-onprem.cometchat-cluster-2.in
+        - internal-vcb-onprem.cometchat-cluster-2.in
+        - internal-apivcb-onprem.cometchat-cluster-2.in
+        - internal-search-onprem.cometchat-cluster-2.in
+        - mail.cometchat-cluster-2.in
+      secretName: wildcard-tls
+  rules:
+    - { host: webhooks-onprem.cometchat-cluster-2.in,     http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: globalwebhooks,      port: { number: 80 } } } }] } }
+    - { host: rule-onprem.cometchat-cluster-2.in,         http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: moderationservice,   port: { number: 80 } } } }] } }
+    - { host: test.antivirus.cometchat-cluster-2.in,      http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: clamav,              port: { number: 80 } } } }] } }
+    - { host: metrics-pro-onprem.cometchat-cluster-2.in,  http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: metrics-pro,         port: { number: 80 } } } }] } }
+    - { host: internal-vcb-onprem.cometchat-cluster-2.in, http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: visual-chat-builder, port: { number: 80 } } } }] } }
+    - { host: internal-apivcb-onprem.cometchat-cluster-2.in, http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: visual-chat-builder, port: { number: 80 } } } }] } }
+    - { host: internal-search-onprem.cometchat-cluster-2.in, http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: service-search,   port: { number: 80 } } } }] } }
+    - { host: mail.cometchat-cluster-2.in,                http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: mailpit,             port: { number: 8025 } } } }] } }
