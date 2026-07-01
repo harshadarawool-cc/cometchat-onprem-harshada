@@ -48,7 +48,12 @@ def probe(health, port):
         return f"httpGet: {{ path: {health}, port: {port} }}"
     return f"tcpSocket: {{ port: {port} }}"
 
+# Per-service app-container memory limit override. moderationservice loads transformers.js ML models
+# (sentiment/toxicity) and OOMs (exit 137) at the 1Gi default — it needs ~3Gi; 4Gi gives headroom.
+MEM = {"moderationservice": "4Gi"}
+
 def node_yaml(name, digest, port, envp, health, jwt, tls=False):
+    mem = MEM.get(name, "1Gi")   # app-container memory limit (default 1Gi; override above)
     jwt_mount = f"\n            - {{ name: jwt, mountPath: /app/jwtrsakey.pem, subPath: jwtrsakey.pem, readOnly: true }}" if jwt else ""
     jwt_vol = "\n        - { name: jwt, secret: { secretName: jwt-public } }" if jwt else ""
     if not tls:
@@ -72,7 +77,7 @@ spec:
           volumeMounts:
             - {{ name: env, mountPath: {envp}, subPath: .env, readOnly: true }}{jwt_mount}
           readinessProbe: {{ {probe(health, port)}, initialDelaySeconds: 15, periodSeconds: 10, failureThreshold: 12 }}
-          resources: {{ requests: {{ cpu: 100m, memory: 256Mi }}, limits: {{ cpu: "1", memory: 1Gi }} }}
+          resources: {{ requests: {{ cpu: 100m, memory: 256Mi }}, limits: {{ cpu: "1", memory: {mem} }} }}
       volumes:
         - {{ name: env, secret: {{ secretName: {name}-env }} }}{jwt_vol}
 ---
@@ -148,7 +153,7 @@ spec:
           volumeMounts:
             - {{ name: env, mountPath: {envp}, subPath: .env, readOnly: true }}{jwt_mount}
           readinessProbe: {{ {probe(health, port)}, initialDelaySeconds: 15, periodSeconds: 10, failureThreshold: 12 }}
-          resources: {{ requests: {{ cpu: 100m, memory: 256Mi }}, limits: {{ cpu: "1", memory: 1Gi }} }}
+          resources: {{ requests: {{ cpu: 100m, memory: 256Mi }}, limits: {{ cpu: "1", memory: {mem} }} }}
         - name: nginx
           image: nginx:1.27-alpine
           ports: [{{ containerPort: 80, name: http }}, {{ containerPort: 443, name: https }}]
@@ -191,7 +196,7 @@ spec:
           # reliable path for native-entrypoint workers.
           envFrom: [{{ secretRef: {{ name: {name}-env }} }}]
           volumeMounts: [{{ name: env, mountPath: {envp}, subPath: .env, readOnly: true }}]
-          resources: {{ requests: {{ cpu: 100m, memory: 256Mi }}, limits: {{ cpu: "1", memory: 1Gi }} }}
+          resources: {{ requests: {{ cpu: 100m, memory: 256Mi }}, limits: {{ cpu: "1", memory: {mem} }} }}
       volumes: [{{ name: env, secret: {{ secretName: {name}-env }} }}]
 """
 
