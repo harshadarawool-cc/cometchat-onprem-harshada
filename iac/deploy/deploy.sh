@@ -452,6 +452,14 @@ phase_node_apps() {
   step "node-apps — websocket / moderationservice / visual-chat-builder / ai-agent-service / workers / dashboard"
   open_tunnel
   run env KUBECONFIG="$KUBECONFIG_FILE" NS="$NS" python3 "$SCRIPTS/deploy-node-apps.py"
+  # Dashboard (SINGLE SOURCE OF TRUTH): dashboard-nginx (nginx cm) + dashboard.yaml (build-copy + the
+  # dashboard-config config.json overlay that points REACT_APP_CUSTOMER_DOMAIN at apimgmt.$DOMAIN). Without
+  # this config.json overlay the SPA falls back to its baked-in cometchat-staging.com default -> CORS.
+  # deploy-node-apps.py intentionally does NOT render the dashboard (its template lacked the overlay).
+  kc apply -f "$K8S/dashboard-nginx.yaml" -f "$K8S/dashboard.yaml" >/dev/null 2>&1 \
+    && ok "dashboard applied (config.json overlay -> apimgmt.$DOMAIN; no staging fallback)" \
+    || warn "dashboard apply failed (check dashboard.yaml + dashboard-nginx.yaml)"
+  kc -n "$NS" rollout status deploy/dashboard --timeout=120s >/dev/null 2>&1 || warn "dashboard not ready yet"
   # complete the default push-settings (poll/reminder/mention templates the auto-created doc omits).
   # Self-waits for notificationscore to create the base doc; idempotent.
   kc -n "$NS" delete job notifications-push-settings-seed --ignore-not-found >/dev/null 2>&1

@@ -256,5 +256,8 @@ print("Node services:")
 for n in NODE: apply(node_yaml(*n), n[0])
 print("Workers:")
 for w in WORKERS: apply(worker_yaml(*w), w[0])
-print("Dashboard:")
-apply(DASHBOARD, "dashboard")
+# Dashboard is owned by k8s/dashboard.yaml + k8s/dashboard-nginx.yaml (applied by deploy.sh phase_node_apps),
+# NOT here. The DASHBOARD template above lacks the config.json (dashboard-config) mount, so rendering it drops
+# the on-prem API URL and the SPA falls back to its baked-in cometchat-staging.com default -> CORS on the
+# dashboard. Left in place for reference only; do NOT re-enable without the appconfig/config.json mount.
+print("Dashboard: owned by k8s/dashboard.yaml (applied by deploy.sh) — skipped here")
