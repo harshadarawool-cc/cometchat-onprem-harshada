@@ -105,13 +105,13 @@
     - name: Check region secret exists (control host)
       delegate_to: localhost
       become: false
-      stat: { path: "{{ playbook_dir }}/../.secrets/region_secret" }
+      stat: { path: "{{ playbook_dir }}/../secrets/infra/region_secret" }
       register: region_secret_stat
 
     - name: Sync pulsecustomerdb.regions.hash to the canonical region secret
       shell: >-
         mysql --force -u root -p'{{ vault_mysql_root_password }}' pulsecustomerdb
-        -e "UPDATE regions SET hash='{{ lookup('file', playbook_dir + '/../.secrets/region_secret') | trim }}' WHERE isActive=1;"
+        -e "UPDATE regions SET hash='{{ lookup('file', playbook_dir + '/../secrets/infra/region_secret') | trim }}' WHERE isActive=1;"
       when: features_stat.stat.exists and region_secret_stat.stat.exists
       no_log: true
       changed_when: true

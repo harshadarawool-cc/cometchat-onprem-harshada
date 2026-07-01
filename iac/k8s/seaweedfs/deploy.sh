@@ -68,14 +68,14 @@ phase_secrets() {
   else warn "aws CLI missing — skipping ecr-pull-secret"; fi
 
   # --- SeaweedFS S3 identities ---
-  # PRIMARY identity = exactly what chatapi's SECURED driver presents (secrets-rendered/chatapi.env),
+  # PRIMARY identity = exactly what chatapi's SECURED driver presents (secrets/apps/chatapi/.env),
   # so a from-scratch rebuild always matches the apps. Persist it for the console/reruns.
   if [ ! -f "$SECRETS_DIR/access-key" ]; then
-    local CENV="$IAC/secrets-rendered/chatapi.env"
+    local CENV="$IAC/secrets/apps/chatapi/.env"
     if [ -f "$CENV" ]; then
       grep -E '^SECURED_AWS_ACCESS_KEY_ID=' "$CENV" | head -1 | cut -d= -f2- | tr -d '\r\n' > "$SECRETS_DIR/access-key"
       grep -E '^SECURED_AWS_SECRET_ACCESS_KEY=' "$CENV" | head -1 | cut -d= -f2- | tr -d '\r\n' > "$SECRETS_DIR/secret-key"
-      log "primary S3 identity derived from secrets-rendered/chatapi.env (matches the apps)"
+      log "primary S3 identity derived from secrets/apps/chatapi/.env (matches the apps)"
     else
       printf '%s' "cometchat$(openssl rand -hex 8)" > "$SECRETS_DIR/access-key"
       openssl rand -hex 32 | tr -d '\n' > "$SECRETS_DIR/secret-key"

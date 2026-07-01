@@ -1,4 +1,18 @@
 ---
+- name: Preflight — datastore credentials MUST be provided (fresh per-cluster creds, not the placeholder)
+  hosts: datastores
+  gather_facts: false
+  run_once: true
+  tasks:
+    - name: FAIL if any datastore password is missing or still the CHANGE_ME placeholder
+      assert:
+        that:
+          - "vault_mysql_root_password is defined and (vault_mysql_root_password | length) > 0 and vault_mysql_root_password != 'CHANGE_ME_MATCH_STAGING'"
+          - "vault_tidb_root_password  is defined and (vault_tidb_root_password  | length) > 0 and vault_tidb_root_password  != 'CHANGE_ME_MATCH_STAGING'"
+          - "vault_mongo_admin_password is defined and (vault_mongo_admin_password | length) > 0"
+        fail_msg: "Datastore creds missing/placeholder — run ./deploy.sh credgen (generates secrets/infra/cluster-creds.yml, passed to ansible via -e). DBs + app secrets must share these."
+        success_msg: "datastore credentials present (fresh per-cluster creds)"
+
 - name: Base setup (all datastore VMs)
   hosts: datastores
   become: true

@@ -67,7 +67,10 @@ TF="$IAC/terraform"
 ANS="$IAC/ansible"
 SCRIPTS="$IAC/scripts"
 K8S="$IAC/k8s"
-SECRETS_DIR="$IAC/.secrets"                  # persistent generated key material (stable across reruns)
+SECRETS_DIR="$IAC/secrets"                   # the clean, self-documenting secrets tree (gitignored)
+SEC_APPS="$SECRETS_DIR/apps"                 #   apps/<app>/ : .env (+ .env.example, config.json, pems, license.txt)
+SEC_SHARED="$SECRETS_DIR/shared"            #   shared/tls  : wildcard-tls (mounted by ~everything)
+SEC_INFRA="$SECRETS_DIR/infra"              #   infra/      : seaweedfs, etherpad, cluster-creds.yml, region_secret, ca
 KUBECONFIG_FILE="$IAC/kubeconfig-6444"
 
 # ----------------------------------------------------------------------------- logging
@@ -107,7 +110,13 @@ apply_secret() {  # apply_secret <kubectl create secret ...args...>  (idempotent
 }
 
 tf()  { ( cd "$TF"  && "$@" ); }
-apb() { ( cd "$ANS" && ansible-playbook "$@" ); }       # ansible.cfg lives in $ANS
+# apb: run an ansible-playbook. If the per-cluster fresh datastore creds exist (secrets/infra/cluster-creds.yml,
+# from phase_credgen), pass them as extra-vars so ansible provisions MySQL/TiDB/Mongo with the SAME passwords the
+# app secrets get synced to (sync-app-db-creds.py). Extra-vars outrank the encrypted vault -> fresh creds win.
+apb() {
+  local ev=""; [ -f "$SEC_INFRA/cluster-creds.yml" ] && ev="-e @$SEC_INFRA/cluster-creds.yml"
+  ( cd "$ANS" && ansible-playbook $ev "$@" )       # ansible.cfg lives in $ANS
+}
 
 # =============================================================================
 # PHASE: preflight  — fail fast, before we touch anything
@@ -220,6 +229,24 @@ phase_datastores_wait() {
 }
 
 # =============================================================================
+# PHASE: credgen  — generate FRESH, per-cluster datastore credentials (runs BEFORE datastores).
+#   One source of truth (secrets/infra/cluster-creds.yml, gitignored): ansible (apb -e) provisions the DBs
+#   with these, and sync-app-db-creds.py (phase_secrets) stamps the SAME values into the app secrets — so a
+#   fresh cluster gets brand-new, self-consistent creds (the leaked ones die). Idempotent: reuses the file if
+#   present (regenerating would desync already-provisioned DBs). Delete the file to force a rotation.
+# =============================================================================
+phase_credgen() {
+  step "credgen — fresh per-cluster datastore credentials"
+  run bash "$SCRIPTS/gen-cluster-creds.sh"
+  local f="$SEC_INFRA/cluster-creds.yml"
+  [ -f "$f" ] || die "credgen failed: $f not created"
+  # every datastore cred must be present + non-empty (else ansible would provision a placeholder pw)
+  local n; n="$(grep -cE '_password: *"[a-zA-Z0-9]{8,}"' "$f" 2>/dev/null || echo 0)"
+  [ "$n" -ge 6 ] || die "credgen: expected 6 datastore creds in $f, found $n — refusing to continue"
+  ok "fresh datastore creds ready ($n) — ansible + app secrets will both use secrets/infra/cluster-creds.yml"
+}
+
+# =============================================================================
 # PHASE: datastores  — Mongo rs0 / 4 Redis Sentinel clusters / Kafka(+TOPICS) / TiDB / MySQL
 # =============================================================================
 phase_datastores() {
@@ -283,7 +310,7 @@ phase_secrets() {
   kc label ns "$NS" pod-security.kubernetes.io/enforce=privileged --overwrite >/dev/null 2>&1 || true
   ok "namespace $NS ready"
 
-  mkdir -p "$SECRETS_DIR/jwt" "$SECRETS_DIR/tls" "$SECRETS_DIR/seaweedfs"
+  mkdir -p "$SEC_APPS/chatapi" "$SEC_SHARED/tls" "$SEC_INFRA/seaweedfs"
 
   # --- ECR pull secrets: BOTH names (PROBLEMS I1) ---
   if command -v aws >/dev/null 2>&1; then
@@ -296,66 +323,75 @@ phase_secrets() {
     else warn "could not get ECR token (aws profile '$AWS_PROFILE') — pods will ImagePullBackOff until secrets exist"; fi
   else warn "aws CLI missing — skipping ECR pull secrets"; fi
 
-  # --- license (PROBLEMS I2): new licence-new.txt mounted as license.txt ---
-  if [ -f "$LICENCE_FILE" ]; then
-    apply_secret secret generic cc-license --from-file=license.txt="$LICENCE_FILE"
-    ok "cc-license (license.txt)"
-  else warn "licence file not found: $LICENCE_FILE — chatapi/mgmtapi will fail license verify"; fi
+  # --- license: prefer the per-app copy (secrets/apps/chatapi/license.txt), else the external LICENCE_FILE ---
+  local licfile="$SEC_APPS/chatapi/license.txt"; [ -f "$licfile" ] || licfile="${LICENCE_FILE:-}"
+  if [ -n "$licfile" ] && [ -f "$licfile" ]; then
+    apply_secret secret generic cc-license --from-file=license.txt="$licfile"
+    ok "cc-license (license.txt <- ${licfile#$IAC/})"
+  else warn "licence not found (secrets/apps/chatapi/license.txt or \$LICENCE_FILE) — chatapi/mgmtapi will fail license verify"; fi
 
-  # --- JWT RSA keypair (PROBLEMS I2): generate ONCE, reuse (stable signing keys) ---
-  if [ ! -f "$SECRETS_DIR/jwt/private.pem" ]; then
-    openssl genrsa -out "$SECRETS_DIR/jwt/private.pem" 2048 >/dev/null 2>&1
-    openssl rsa -in "$SECRETS_DIR/jwt/private.pem" -pubout -out "$SECRETS_DIR/jwt/public.pem" >/dev/null 2>&1
-    log "generated new JWT keypair (persisted under .secrets/jwt)"
+  # --- JWT RSA keypair: generate ONCE (canonical: apps/chatapi), then MIRROR into every app that mounts it ---
+  mkdir -p "$SEC_APPS/chatapi"
+  if [ ! -f "$SEC_APPS/chatapi/private.pem" ]; then
+    openssl genrsa -out "$SEC_APPS/chatapi/private.pem" 2048 >/dev/null 2>&1
+    openssl rsa -in "$SEC_APPS/chatapi/private.pem" -pubout -out "$SEC_APPS/chatapi/public.pem" >/dev/null 2>&1
+    log "generated new JWT keypair (canonical: secrets/apps/chatapi)"
   fi
-  apply_secret secret generic jwt-keys  --from-file=private.pem="$SECRETS_DIR/jwt/private.pem" --from-file=public.pem="$SECRETS_DIR/jwt/public.pem"
-  apply_secret secret generic jwt-public --from-file=jwtrsakey.pem="$SECRETS_DIR/jwt/public.pem"
+  # mirror the keypair (+ public key) into the apps that mount jwt-keys / jwt-public — keeps each app folder
+  # self-documenting; all resolve to the SAME k8s secret (created below from the chatapi canonical copy).
+  mkdir -p "$SEC_APPS/mgmtapi"
+  cp -f "$SEC_APPS/chatapi/private.pem" "$SEC_APPS/mgmtapi/private.pem"
+  cp -f "$SEC_APPS/chatapi/public.pem"  "$SEC_APPS/mgmtapi/public.pem"
+  for a in websocket moderationservice visual-chat-builder analytics metrics-pro extensions; do
+    [ -d "$SEC_APPS/$a" ] && cp -f "$SEC_APPS/chatapi/public.pem" "$SEC_APPS/$a/jwtrsakey.pem"
+  done
+  apply_secret secret generic jwt-keys  --from-file=private.pem="$SEC_APPS/chatapi/private.pem" --from-file=public.pem="$SEC_APPS/chatapi/public.pem"
+  apply_secret secret generic jwt-public --from-file=jwtrsakey.pem="$SEC_APPS/chatapi/public.pem"
   ok "jwt-keys (sign: chatapi/mgmtapi) + jwt-public (verify: websocket/analytics)"
 
   # --- wildcard TLS for the ingress (self-signed *.cometchat-cluster-2.in) ---
-  if [ ! -f "$SECRETS_DIR/tls/tls.crt" ]; then
+  if [ ! -f "$SEC_SHARED/tls/tls.crt" ]; then
     openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
-      -keyout "$SECRETS_DIR/tls/tls.key" -out "$SECRETS_DIR/tls/tls.crt" \
+      -keyout "$SEC_SHARED/tls/tls.key" -out "$SEC_SHARED/tls/tls.crt" \
       -subj "/CN=*.cometchat-cluster-2.in" \
       -addext "subjectAltName=DNS:*.cometchat-cluster-2.in,DNS:*.api-us.cometchat-cluster-2.in,DNS:*.websocket-us.cometchat-cluster-2.in" >/dev/null 2>&1
-    log "generated self-signed wildcard TLS (persisted under .secrets/tls)"
+    log "generated self-signed wildcard TLS (persisted under secrets/shared/tls)"
   fi
-  apply_secret secret tls wildcard-tls --cert="$SECRETS_DIR/tls/tls.crt" --key="$SECRETS_DIR/tls/tls.key"
+  apply_secret secret tls wildcard-tls --cert="$SEC_SHARED/tls/tls.crt" --key="$SEC_SHARED/tls/tls.key"
   ok "wildcard-tls"
 
   # --- SeaweedFS S3 (create only if absent; don't clobber tuned creds) ---
   if ! KUBECONFIG="$KUBECONFIG_FILE" kubectl -n "$NS" get secret seaweedfs-s3-creds >/dev/null 2>&1; then
     local ak sk
     ak="cometchat$(openssl rand -hex 6)"; sk="$(openssl rand -hex 20)"
-    printf '%s' "$ak" > "$SECRETS_DIR/seaweedfs/access-key"
-    printf '%s' "$sk" > "$SECRETS_DIR/seaweedfs/secret-key"
-    cat > "$SECRETS_DIR/seaweedfs/s3.json" <<JSON
+    printf '%s' "$ak" > "$SEC_INFRA/seaweedfs/access-key"
+    printf '%s' "$sk" > "$SEC_INFRA/seaweedfs/secret-key"
+    cat > "$SEC_INFRA/seaweedfs/s3.json" <<JSON
 { "identities": [ { "name": "cometchat",
   "credentials": [ { "accessKey": "$ak", "secretKey": "$sk" } ],
   "actions": ["Admin","Read","Write","List","Tagging"] } ] }
 JSON
-    apply_secret secret generic seaweedfs-s3       --from-file=s3.json="$SECRETS_DIR/seaweedfs/s3.json"
-    apply_secret secret generic seaweedfs-s3-creds --from-file=access-key="$SECRETS_DIR/seaweedfs/access-key" --from-file=secret-key="$SECRETS_DIR/seaweedfs/secret-key"
+    apply_secret secret generic seaweedfs-s3       --from-file=s3.json="$SEC_INFRA/seaweedfs/s3.json"
+    apply_secret secret generic seaweedfs-s3-creds --from-file=access-key="$SEC_INFRA/seaweedfs/access-key" --from-file=secret-key="$SEC_INFRA/seaweedfs/secret-key"
     ok "seaweedfs-s3 + seaweedfs-s3-creds (access-key/secret-key match the s3.json identity)"
   else ok "seaweedfs secrets already exist — left as-is"; fi
 
-  # --- per-service secrets: authoritative source is secrets-rendered/ (one file per app) ---
-  # secrets-from-rendered.py recreates every <svc>-env (+ calls-relay-envfile / *-config) in the
-  # exact shape each app consumes. No Vault dump, no re-rewriting — the rendered files already hold
-  # the live, datastore-rewritten values. (secret-sync.py + secret-shapes.py remain only as the
-  # one-time Vault bootstrap that originally produced secrets-rendered/.)
-  if [ -d "$IAC/secrets-rendered" ] && ls "$IAC"/secrets-rendered/*.env >/dev/null 2>&1; then
-    log "secrets-from-rendered.py (secrets-rendered/ → live secrets, correct shapes)…"
+  # --- per-service secrets: authoritative source is secrets/apps/<app>/ (one folder per app) ---
+  # 1) sync-app-db-creds.py stamps the freshly-generated datastore passwords (secrets/infra/cluster-creds.yml)
+  #    into each app's .env/config.json FIRST, so apps authenticate with EXACTLY what ansible provisioned.
+  # 2) secrets-from-rendered.py then creates every <svc>-env (+ *-config / calls-relay-envfile) k8s secret in
+  #    the exact shape each app consumes.
+  if [ -d "$SEC_APPS" ] && ls "$SEC_APPS"/*/.env >/dev/null 2>&1; then
+    if [ -f "$SEC_INFRA/cluster-creds.yml" ]; then
+      log "sync-app-db-creds.py (fresh datastore creds → app secrets)…"
+      run python3 "$SCRIPTS/sync-app-db-creds.py" || die "cred sync FAILED — app secrets would not match the datastores; aborting"
+    else warn "no secrets/infra/cluster-creds.yml — app secrets use their baked-in datastore creds (run ./deploy.sh credgen to rotate)"; fi
+    log "secrets-from-rendered.py (secrets/apps/<app> → live secrets, correct shapes)…"
     run python3 "$SCRIPTS/secrets-from-rendered.py" --apply
-    ok "per-service secrets created from secrets-rendered/"
-  elif [ -d "$VAULT_ENVS_DIR" ] && [ -n "$(ls -A "$VAULT_ENVS_DIR" 2>/dev/null)" ]; then
-    warn "no secrets-rendered/ baseline — bootstrapping ONCE from the Vault dump…"
-    log "secret-sync.py (datastore-endpoint rewrite only)…"; run python3 "$SCRIPTS/secret-sync.py"
-    log "secret-shapes.py (per-app shapes)…";              run python3 "$SCRIPTS/secret-shapes.py"
-    ok "per-service secrets bootstrapped from Vault (now persisted in secrets-rendered/ — that is the source going forward)"
+    ok "per-service secrets created from secrets/apps/"
   else
-    warn "no secrets-rendered/ baseline AND no Vault dump — cannot create app secrets."
-    warn "  restore secrets-rendered/ (or produce a Vault dump), then re-run: ./deploy.sh secrets"
+    warn "no secrets/apps/<app>/.env baseline — cannot create app secrets."
+    warn "  restore secrets/apps/ (per-app .env), then re-run: ./deploy.sh secrets"
   fi
 }
 
@@ -392,11 +428,11 @@ phase_support() {
 phase_editors() {
   step "editors — etherpad DB + secrets (document-embed/whiteboard manifests apply in 'apps')"
   open_tunnel
-  mkdir -p "$SECRETS_DIR/etherpad"
-  [ -f "$SECRETS_DIR/etherpad/db-password" ] || openssl rand -hex 16 | tr -d '\n' > "$SECRETS_DIR/etherpad/db-password"
-  apply_secret secret generic etherpad-db --from-file=password="$SECRETS_DIR/etherpad/db-password"
+  mkdir -p "$SEC_INFRA/etherpad"
+  [ -f "$SEC_INFRA/etherpad/db-password" ] || openssl rand -hex 16 | tr -d '\n' > "$SEC_INFRA/etherpad/db-password"
+  apply_secret secret generic etherpad-db --from-file=password="$SEC_INFRA/etherpad/db-password"
   # render Etherpad settings.json (dbType mysql -> mgmt MySQL) from the persisted password
-  python3 - "$SECRETS_DIR/etherpad/db-password" "$SECRETS_DIR/etherpad/settings.json" <<'PY'
+  python3 - "$SEC_INFRA/etherpad/db-password" "$SEC_INFRA/etherpad/settings.json" <<'PY'
 import json,sys
 pw=open(sys.argv[1]).read().strip()
 json.dump({"title":"CometChat Document","favicon":"favicon.ico","skinName":"colibris",
@@ -408,7 +444,7 @@ json.dump({"title":"CometChat Document","favicon":"favicon.ico","skinName":"coli
   "socketTransportProtocols":["websocket","polling"],"loglevel":"INFO"},
   open(sys.argv[2],"w"),indent=2)
 PY
-  apply_secret secret generic document-embed-settings --from-file=settings.json="$SECRETS_DIR/etherpad/settings.json"
+  apply_secret secret generic document-embed-settings --from-file=settings.json="$SEC_INFRA/etherpad/settings.json"
   # create the etherpad DB + user (mysql_native_password) + force store-table utf8mb4 (one-shot Job)
   kc -n "$NS" delete job etherpad-db-init --ignore-not-found >/dev/null 2>&1
   kc apply -f "$K8S/etherpad-db-init.job.yaml" >/dev/null
@@ -689,6 +725,7 @@ main() {
     infra)            phase_infra ;;
     inventory)        phase_inventory ;;
     datastores-wait)  phase_datastores_wait ;;
+    credgen)          phase_credgen ;;      # generate fresh per-cluster datastore creds (secrets/infra/cluster-creds.yml)
     datastores)       phase_datastores ;;
     rke2)             phase_rke2 ;;
     seed)             phase_seed ;;
@@ -707,16 +744,18 @@ main() {
 
     infra-all)        # the one-click INFRA rebuild
       phase_preflight; phase_infra; phase_inventory; phase_datastores_wait
+      phase_credgen
       phase_datastores; phase_rke2; phase_seed
       step "DONE — infra is up"
       ok "Datastores + Kafka topics + RKE2 + seed complete."
-      ok "Next (when ECR + licence + secrets-rendered are ready):  ./deploy.sh app-all"
+      ok "Next (when ECR + licence + secrets/apps are ready):  ./deploy.sh app-all"
       ;;
     app-all)          # the gated APP phase — EVERYTHING app-side, in order
       phase_secrets; phase_support; phase_storage; phase_editors; phase_apps; phase_node_apps; phase_coredns; phase_ingress; phase_certs
       step "DONE — app phase applied"; phase_verify ;;
     all)              # the true one-click: zero -> fully-working, all services
       phase_preflight; phase_infra; phase_inventory; phase_datastores_wait
+      phase_credgen
       phase_datastores; phase_rke2; phase_seed
       phase_secrets; phase_support; phase_storage; phase_editors; phase_apps; phase_node_apps; phase_coredns; phase_ingress; phase_certs; phase_verify ;;
     *) err "unknown target: $target"; usage; exit 2 ;;

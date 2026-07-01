@@ -1,10 +1,13 @@
 # ============================================================================
 # SECRETS — never commit. These hold live credentials / private keys / state.
 # ============================================================================
-# rendered per-service secrets (DB passwords, JWT, licences, AWS creds)
-iac/secrets-rendered/
-# private key material, TLS keys, S3 creds, admin passwords, region secret
-iac/.secrets/
+# the secrets tree: per-app .env + pems + license (apps/<app>/), shared/tls, infra/ (seaweedfs, etherpad,
+# cluster-creds, region_secret). Ignore ALL of it — but KEEP the redacted .env.example templates + READMEs
+# so the structure stays self-documenting in git (a dev sees each app's required keys without any secret).
+iac/secrets/**
+!iac/secrets/**/
+!iac/secrets/**/.env.example
+!iac/secrets/**/README.md
 # cluster admin access
 **/kubeconfig
 **/kubeconfig-*

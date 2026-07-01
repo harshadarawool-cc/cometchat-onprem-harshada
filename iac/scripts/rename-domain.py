@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Global domain rename: cc-cluster-1.io -> cometchat-cluster-2.in across
-  - repo files (k8s manifests, secrets-rendered baseline, scripts, docs, deploy/)
+  - repo files (k8s manifests, secrets/apps baseline, scripts, docs, deploy/)
   - live k8s secrets (decode -> replace -> re-apply, preserving every key & shape)
 The CoreDNS split-horizon configmap and Route53/cert steps are handled separately.
 Default dry-run; pass --apply to write.
@@ -14,7 +14,7 @@ KC = os.environ.get("KUBECONFIG", os.path.join(ROOT, "kubeconfig-6444"))
 NS = os.environ.get("NS", "cometchat")
 APPLY = "--apply" in sys.argv
 
-FILE_GLOBS = ["k8s/*.yaml", "secrets-rendered/*.env", "scripts/*.py", "*.md",
+FILE_GLOBS = ["k8s/*.yaml", "secrets/apps/*/.env", "scripts/*.py", "*.md",
               "deploy/*.sh", "deploy/*.conf", "deploy/*.example", "deploy/*.md"]
 
 print("===== FILES =====")

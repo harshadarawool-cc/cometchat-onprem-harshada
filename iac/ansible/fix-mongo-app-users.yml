@@ -1,19 +1,28 @@
 ---
-# Provision the Mongo users the staging app envs expect (honor "don't change envs":
-# make the datastore accept the credentials already in the envs).
-#   admin       -> Cometchat2026*        (most apps, root)
-#   extadmin    -> Q16d1Pe0DUq           (extensions, root)
-#   webhookuser -> zhyOR9TCNqlN8xRe      (globalwebhooks, root)
-# Authenticates as current admin (vault pass) on the PRIMARY, then resets admin last.
+# Provision the per-app Mongo users the app secrets authenticate as. Passwords come from the fresh
+# per-cluster creds (secrets/infra/cluster-creds.yml, passed by deploy.sh apb -e) — the SAME values
+# sync-app-db-creds.py stamps into each app's MONGO_URI, so datastore and app secrets never drift.
+#   admin       (most apps)     <- vault_mongo_app_admin_password
+#   extadmin    (extensions)    <- vault_mongo_extadmin_password
+#   webhookuser (globalwebhooks)<- vault_mongo_webhookuser_password
+# Authenticates as the superuser 'root' (vault_mongo_admin_password, created by the mongo role).
 - hosts: mongo
   become: true
   vars:
-    root_user: "root"                                    # existing superuser created by mongo role
-    root_pass: "{{ vault_mongo_admin_password }}"        # = zhyOR9TCNqlN8xRe
-    admin_pass: "Cometchat2026*"                          # apps connect as admin/this
-    extadmin_pass: "Q16d1Pe0DUq"
-    webhookuser_pass: "zhyOR9TCNqlN8xRe"
+    root_user: "root"                                          # superuser created by the mongo role
+    root_pass: "{{ vault_mongo_admin_password }}"
+    admin_pass: "{{ vault_mongo_app_admin_password }}"
+    extadmin_pass: "{{ vault_mongo_extadmin_password }}"
+    webhookuser_pass: "{{ vault_mongo_webhookuser_password }}"
   tasks:
+    - name: FAIL if the mongo app-user passwords were not provided (run deploy.sh credgen)
+      assert:
+        that:
+          - "vault_mongo_admin_password is defined and vault_mongo_admin_password | length > 0"
+          - "vault_mongo_app_admin_password is defined and vault_mongo_app_admin_password | length > 0"
+          - "vault_mongo_extadmin_password is defined and vault_mongo_extadmin_password | length > 0"
+          - "vault_mongo_webhookuser_password is defined and vault_mongo_webhookuser_password | length > 0"
+        fail_msg: "Mongo creds missing — generate secrets/infra/cluster-creds.yml (./deploy.sh credgen) so datastore + app secrets match."
     - name: Create admin + extadmin + webhookuser the app envs expect (auth as root)
       shell: |
         mongosh "mongodb://{{ root_user }}:{{ root_pass | urlencode }}@localhost:27017/admin?authSource=admin&directConnection=true" --quiet --eval '

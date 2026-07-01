@@ -1,38 +1,38 @@
-# CometChat — Fresh GCP RKE2 Cluster Rebuild
+# CometChat on-prem — GCP RKE2 (one-click)
 
-Clean rebuild of the CometChat backend on a **fresh** GCP RKE2 cluster, using a colleague (Aryan)'s
-**working** cluster as the blueprint. This folder replaces the accumulated one-off patches in
-`~/GCP_RKE2/iac/` (the current/broken cluster) with a correct-from-the-start setup.
+Reproducible, zero → fully-working CometChat backend on GCP + RKE2. One command rebuilds the entire
+cluster (VMs, datastores, seed data, all app services, ingress, TLS) from scratch.
 
-> **Status: PLANNING.** Nothing in here is applied yet, and the current cluster has NOT been touched.
-> Each subfolder is populated only **after** its phase plan is reviewed and approved.
+```
+.
+├── dumps/          DB seed data — 4 MySQL .sql (pulsecustomerdb, onprem-features, metrics, analytics)
+│                   + Mongo JSON (vcb template, moderation rules, notification templates)
+└── iac/            all Infrastructure-as-Code — START HERE: iac/README.md
+    ├── deploy/     deploy.sh (the orchestrator) + customer.conf (the one file you edit)
+    ├── terraform/  VPC, firewall, edge LB, 25 VMs (mongo/redis/kafka/mysql/tidb/rke2)
+    ├── ansible/    datastore provisioning + data seeding
+    ├── k8s/        every k8s manifest (apps, ingress, coredns, cert-manager, seaweedfs, …)
+    ├── scripts/    credgen, cred-sync, secret-render, node-app deploy, …
+    ├── secrets/    ALL credentials (gitignored, per-app) — see iac/secrets/README.md
+    └── docs/       architecture + the problem→fix journal
+```
 
-## Guiding rule — no app patching
-Every application runs from its published image **as-is**, pinned by digest. If an image won't come up
-healthy, the fix belongs in **networking / config / secrets / DB-seeding — never** the app.
+## Deploy
+```bash
+cd iac/deploy
+# edit customer.conf (project / zone / domain / sizing / LICENCE_FILE / R53 zone)
+./deploy.sh config && ./deploy.sh all        # ~60–90 min, idempotent
+cd .. && ./dns-point.sh                       # Route53 *.<domain> → new edge LB IP
+```
+Full runbook, phase list, and design notes: **[iac/README.md](iac/README.md)**.
 
-## Layout (to be populated per approved plan)
-| Folder | Holds |
-|---|---|
-| `terraform/` | VPC, subnets, firewall (inbound-closed / outbound-open), edge LB, RKE2 nodes, datastore VMs |
-| `k8s/` | ingress, CoreDNS split-horizon, cert-manager, app manifests / Helm values |
-| `deploy/` | phased deploy scripts + `customer.conf` |
-| `dumps/sql`, `dumps/mongo` | the 7 DB dumps to restore (4 MySQL `.sql` + 3 Mongo `.json`) |
-| `docs/` | `CLUSTER-GAP-ANALYSIS.md` + per-phase plans |
+## Principles
+- **No app patching.** Every image runs as-is, pinned by digest. Fixes live in networking / config /
+  secrets / DB-seeding — never the app.
+- **Fresh creds per cluster.** `credgen` generates new datastore passwords and syncs them into both the
+  DBs and the app secrets, so no credentials are ever reused. See `iac/secrets/README.md`.
+- **Data residency.** Per-pod TLS sidecars + split-horizon CoreDNS keep east-west traffic (and all object
+  data) inside the VPC.
 
-## Canonical reference material
-- `~/Downloads/Aryan-clster-working setup/` — `K8S-NETWORKING-GUIDE (1).md`, `DUMPS-AND-SEEDING.md`, `cometchat-db-dumps 2/`
-- `~/Downloads/cc-handoffs/` — 6 service handoffs (chatapi, extensions, metrics, moderation, seaweedfs, vcb)
-- `~/Downloads/cometchat-envs-aryan/` — Aryan's live per-app envs + datastore secrets (⚠ live secrets)
-
-## Locked decisions
-- Domain **`cometchat-cluster-2.in`**, region **`onprem`**.
-- Firewall: **inbound CLOSED** at cluster level (default-deny ingress; allow only minimal edge HTTPS +
-  GCP health-check ranges + Google IAP 22/6443). **Outbound OPEN** for now (testing) — egress not yet locked.
-- No app patching. Pin by digest. 3 pinned: chatapi `sha256:e35cfbec…d89558`, mgmt `sha256:1712df2f…6ea5c4`,
-  notification `sha256:2dc5eb05…337ce9`; every other app = latest-from-ECR resolved to a digest.
-
-## Reference: current cluster IaC being replaced
-`~/GCP_RKE2/iac/` — terraform/{network,firewall,lb,rke2,datastores,bastion,variables}.tf ;
-k8s/{ingress,coredns-split-horizon,cert-manager-issuer}.yaml ; docs/{R53-RECORDS,NETWORK-AND-SECURITY,NETWORK-FLOW}.md ;
-deploy/{customer.conf,README.md}
+> Secrets are **gitignored** — a clone contains only redacted `*.env.example` templates. Provide real
+> values (or let the deploy self-generate them) before running. See `iac/secrets/README.md`.

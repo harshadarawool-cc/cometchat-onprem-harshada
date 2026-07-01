@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Apply the on-prem region change to the LIVE k8s secrets, in one atomic prep step:
-  1. region secret -> all consumers + mgmt-api (one value from iac/.secrets/region_secret)
+  1. region secret -> all consumers + mgmt-api (one value from iac/secrets/infra/region_secret)
   2. region id  us -> onprem   (ONPREM_REGION / REGION / *_REGION fields whose value is exactly 'us')
   3. host rename  *-us.cometchat-cluster-2.in -> *-onprem.cometchat-cluster-2.in   (region in service URLs)
 Operates on the live secret VALUES (so all prior fixes are preserved) and re-applies in the
@@ -14,8 +14,8 @@ NS = os.environ.get("NS", "cometchat")
 APPLY = "--apply" in sys.argv
 # NOTE: largely obsolete — the new mgmt image self-applies the region (regions.hash from
 # ONPREM_REGION_SECRET) and secrets-rendered/ already ships -onprem hosts + REGION=onprem.
-# Kept for ad-hoc use; reads the region secret from .secrets/region_secret if present.
-SECRET = open(os.path.join(_IAC, ".secrets", "region_secret")).read().strip()
+# Kept for ad-hoc use; reads the region secret from secrets/infra/region_secret if present.
+SECRET = open(os.path.join(_IAC, "secrets", "infra", "region_secret")).read().strip()
 
 # secret-name -> the plain env KEY that must equal the region secret
 REGION_VAR = {

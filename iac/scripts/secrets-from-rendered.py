@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Create every per-app k8s secret FROM secrets-rendered/ — the single authoritative baseline.
+"""Create every per-app k8s secret FROM secrets/apps/ — the single authoritative baseline.
 
-secrets-rendered/ holds one file per app (already datastore-rewritten / fixed, pulled from live
+secrets/apps/ holds one folder per app (already datastore-rewritten / fixed, pulled from live
 by secret-pull.py). This script is the deploy's secret step: it recreates each live secret in the
 exact SHAPE its pod consumes, with NO Vault dump and NO re-rewriting needed.
 
@@ -11,7 +11,7 @@ Shapes (verified against the live cluster):
   extra      -> Secret { <filekey>: <file> }                   (second artifact some apps need)
 
 This REPLACES secret-sync.py + secret-shapes.py in the deploy (those remain only as the one-time
-Vault bootstrap that originally produced secrets-rendered/).
+Vault bootstrap that originally produced secrets/apps/).
 
   ./scripts/secrets-from-rendered.py            # dry-run: show the plan (shapes + key counts)
   ./scripts/secrets-from-rendered.py --apply    # create/replace the live secrets
@@ -22,7 +22,7 @@ import json, os, subprocess, sys
 NS = os.environ.get("NS", "cometchat")
 _IAC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../iac
 KC = os.environ.get("KUBECONFIG", os.path.join(_IAC, "kubeconfig-6444"))
-RENDERED = os.path.join(_IAC, "secrets-rendered")
+RENDERED = os.environ.get("CC_APPS", os.path.join(_IAC, "secrets", "apps"))   # per-app folders: apps/<app>/.env (+ config.json)
 
 # <app>-env delivered as a single .env file (mounted as a volume)
 FILE_ENV = [
@@ -38,9 +38,9 @@ ENVFROM = ["clamav", "globalwebhooks", "metrics-pro", "notificationscore", "serv
 
 # second artifact some apps additionally mount:  secret -> (key-inside-secret, source file in RENDERED)
 EXTRA = {
-    "analytics-config":    ("config.json",      "analytics-config.json"),    # JSON config the bytecode requires as ../config.json
-    "extensions-config":   ("env.staging.json", "extensions-config.json"),   # JSON config file
-    "sql-consumer-config": ("config.json",      "sql-consumer-config.json"), # JSON config file (holds TiDB root pw)
+    "analytics-config":    ("config.json",      "analytics/config.json"),    # JSON config the bytecode requires as ../config.json
+    "extensions-config":   ("env.staging.json", "extensions/config.json"),   # JSON config file
+    "sql-consumer-config": ("config.json",      "sql-consumer/config.json"), # JSON config file (holds TiDB root pw)
 }
 
 
@@ -82,7 +82,7 @@ def main():
     for app in FILE_ENV:
         if not want(app):
             continue
-        f = os.path.join(RENDERED, f"{app}.env")
+        f = os.path.join(RENDERED, app, ".env")
         if not os.path.exists(f):
             print(f"  {app}-env: MISSING {app}.env — skipped"); continue
         n = len(parse_env(f))
@@ -91,7 +91,7 @@ def main():
     for app in ENVFROM:
         if not want(app):
             continue
-        f = os.path.join(RENDERED, f"{app}.env")
+        f = os.path.join(RENDERED, app, ".env")
         if not os.path.exists(f):
             print(f"  {app}-env: MISSING {app}.env — skipped"); continue
         d = parse_env(f)
@@ -99,7 +99,7 @@ def main():
 
     for secret, (filekey, src) in EXTRA.items():
         app = secret  # for --only matching, accept either the secret name or its base app
-        base = src.rsplit(".", 1)[0]
+        base = src.split("/")[0]   # per-app folder name (analytics / extensions / sql-consumer)
         if only and secret not in only and base not in only:
             continue
         f = os.path.join(RENDERED, src)
