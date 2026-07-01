@@ -3,6 +3,50 @@
 # override / --require shim). The previous single-cpu shim (to force the single-process path)
 # is removed — the image works as-is in the reference cluster.
 ---
+# nginx sidecar config — pod-TLS: :80 plain front + :443 wildcard-cert front. Proxies to app on 127.0.0.1:3100.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notificationscore-nginx-config
+  namespace: cometchat
+data:
+  default.conf: |
+    server {
+      listen 80; server_name _; client_max_body_size 50M;
+      underscores_in_headers on; ignore_invalid_headers off;
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:3100;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
+    # pod-TLS: terminate the wildcard cert on :443 so east-west calls (CoreDNS ->
+    # Service ClusterIP:443) are real HTTPS verified against *.<domain>, not just ingress-terminated.
+    server {
+      listen 443 ssl; server_name _; client_max_body_size 50M;
+      ssl_certificate /tls/tls.crt; ssl_certificate_key /tls/tls.key;
+      underscores_in_headers on; ignore_invalid_headers off;
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:3100;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -61,6 +105,18 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }
+        # nginx sidecar — pod-TLS: :80 plain + :443 wildcard cert. Proxies / -> app on 127.0.0.1:3100.
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80, name: http }, { containerPort: 443, name: https }]
+          volumeMounts:
+            - { name: nginx-config, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+            - { name: tls, mountPath: /tls, readOnly: true }
+          readinessProbe: { httpGet: { path: /nginx-health, port: 80 }, initialDelaySeconds: 10, periodSeconds: 10 }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }
+      volumes:
+        - { name: nginx-config, configMap: { name: notificationscore-nginx-config } }
+        - { name: tls, secret: { secretName: wildcard-tls } }
 ---
 apiVersion: v1
 kind: Service
@@ -74,4 +130,6 @@ spec:
   selector:
     app.kubernetes.io/name: notificationscore
   ports:
-    - { name: http, port: 80, targetPort: 3100 }
+    # port 80/443 now front the nginx sidecar (targetPort 80/443).
+    - { name: http, port: 80, targetPort: 80 }
+    - { name: https, port: 443, targetPort: 443 }

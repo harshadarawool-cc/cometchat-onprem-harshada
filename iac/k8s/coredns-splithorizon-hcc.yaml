@@ -1,8 +1,16 @@
-# Durable RKE2 split-horizon: pods resolve *.cometchat-cluster-2.in -> the INTERNAL ingress
-# (rke2-ingress-nginx-internal ClusterIP 10.43.200.10, which terminates the LE wildcard cert and
-# routes each host to its Service). Keeps east-west traffic IN-CLUSTER (no hairpin to the edge LB).
-# HelmChartConfig survives helm reconciles + reboots (unlike a raw ConfigMap edit).
-# servers[0] = the stock rke2-coredns .:53 (reproduced exactly); servers[1] = the cometchat zone.
+# Durable RKE2 POD-TLS split-horizon via HelmChartConfig (survives helm reconciles + reboots).
+# rke2-coredns does NOT import the coredns-custom ConfigMap, so a raw Corefile edit is inert — this HCC
+# is the working mechanism (it feeds the chart values the helm-controller renders the Corefile from).
+#
+# ONE .:53 server. Plugin behaviour (CoreDNS runs plugins in its built-in order, not Corefile order):
+#   1. `rewrite stop` per on-prem FQDN  -> rewrites the query name to that host's in-cluster Service
+#      (<svc>.<ns>.svc.cluster.local). The per-pod nginx sidecar on that Service terminates wildcard-tls on
+#      :443, so east-west calls are DIRECT pod->Service, verified HTTPS, and never leave the VPC (data residency).
+#   2. catch-all `template` -> any *.<domain> host we did NOT rewrite (media-onprem / data-onprem / files-onprem
+#      = avatars, stickers, chat uploads) resolves to the internal ingress ClusterIP (__INGRESS_IP__), which
+#      routes in-cluster to ingress-nginx -> seaweedfs. AAAA answered empty NOERROR.
+#   3. kubernetes resolves the rewritten .svc.cluster.local names.
+# The __REWRITES__ marker is replaced by deploy.sh phase_coredns from the SERVICE_MAP (single source of truth).
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
 metadata:
@@ -20,6 +28,20 @@ spec:
             configBlock: |-
               lameduck 10s
           - name: ready
+          # --- POD-TLS per-FQDN rewrites (on-prem FQDN -> in-cluster Service; sidecar terminates :443) ---
+          # __REWRITES__
+          # --- catch-all: any un-rewritten *.<domain> host -> internal ingress ClusterIP (media/data/files) ---
+          - name: template
+            parameters: IN A
+            configBlock: |-
+              match "^.*__DOMAIN_RE__[.]$"
+              answer "{{ .Name }} 30 IN A __INGRESS_IP__"
+              fallthrough
+          - name: template
+            parameters: IN AAAA
+            configBlock: |-
+              match "^.*__DOMAIN_RE__[.]$"
+              rcode NOERROR
           - name: kubernetes
             parameters: cluster.local in-addr.arpa ip6.arpa
             configBlock: |-
@@ -35,23 +57,3 @@ spec:
           - name: loop
           - name: reload
           - name: loadbalance
-      - zones:
-          - zone: __DOMAIN__
-        port: 53
-        plugins:
-          - name: errors
-          - name: template
-            parameters: IN A
-            configBlock: |-
-              match "^.*__DOMAIN_RE__[.]$"
-              answer "{{ .Name }} 60 IN A __INGRESS_IP__"
-          - name: template
-            parameters: IN AAAA
-            configBlock: |-
-              match "^.*__DOMAIN_RE__[.]$"
-              rcode NOERROR
-          - name: forward
-            parameters: . /etc/resolv.conf
-          - name: cache
-            parameters: 30
-          - name: reload

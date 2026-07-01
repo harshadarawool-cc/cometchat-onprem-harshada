@@ -44,16 +44,67 @@ spec:
           ports: [{ containerPort: 8080, name: http }]
           readinessProbe: { tcpSocket: { port: 8080 }, periodSeconds: 15 }
           resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }
+        # pod-TLS sidecar: terminate the wildcard cert on :443 so east-west calls (CoreDNS -> Service
+        # ClusterIP:443) are real HTTPS verified against *.<domain>, and :80 stays for plain HTTP.
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80, name: http }, { containerPort: 443, name: https }]
+          volumeMounts:
+            - { name: nginx-config, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+            - { name: tls, mountPath: /tls, readOnly: true }
+          readinessProbe: { httpGet: { path: /nginx-health, port: 80 }, initialDelaySeconds: 10, periodSeconds: 10 }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }
       volumes:
         - { name: config, secret: { secretName: analytics-config } }
         - { name: jwt, secret: { secretName: jwt-public } }
+        - { name: nginx-config, configMap: { name: analytics-nginx-config } }
+        - { name: tls, secret: { secretName: wildcard-tls } }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: analytics-nginx-config, namespace: cometchat }
+data:
+  default.conf: |
+    server {
+      listen 80; server_name _; client_max_body_size 50M;
+      underscores_in_headers on; ignore_invalid_headers off;   # east-west auth headers (app_secret/api_key) carry underscores; nginx drops them by default -> forward verbatim
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
+    server {
+      listen 443 ssl; server_name _; client_max_body_size 50M;
+      ssl_certificate /tls/tls.crt; ssl_certificate_key /tls/tls.key;
+      underscores_in_headers on; ignore_invalid_headers off;
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
 ---
 apiVersion: v1
 kind: Service
 metadata: { name: analytics, namespace: cometchat, labels: { app.kubernetes.io/name: analytics } }
 spec:
   selector: { app.kubernetes.io/name: analytics }
-  ports: [{ name: http, port: 80, targetPort: 8080 }]
+  ports: [{ name: http, port: 80, targetPort: 80 }, { name: https, port: 443, targetPort: 443 }]
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -75,13 +126,64 @@ spec:
           startupProbe: { tcpSocket: { port: 3003 }, periodSeconds: 10, failureThreshold: 30 }
           readinessProbe: { tcpSocket: { port: 3003 }, periodSeconds: 10 }
           resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: "1", memory: 1Gi } }
+        # pod-TLS sidecar: terminate the wildcard cert on :443 for east-west HTTPS; :80 stays plain HTTP.
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80, name: http }, { containerPort: 443, name: https }]
+          volumeMounts:
+            - { name: nginx-config, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+            - { name: tls, mountPath: /tls, readOnly: true }
+          readinessProbe: { httpGet: { path: /nginx-health, port: 80 }, initialDelaySeconds: 10, periodSeconds: 10 }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }
+      volumes:
+        - { name: nginx-config, configMap: { name: metrics-pro-nginx-config } }
+        - { name: tls, secret: { secretName: wildcard-tls } }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: metrics-pro-nginx-config, namespace: cometchat }
+data:
+  default.conf: |
+    server {
+      listen 80; server_name _; client_max_body_size 50M;
+      underscores_in_headers on; ignore_invalid_headers off;   # east-west auth headers (app_secret/api_key) carry underscores; nginx drops them by default -> forward verbatim
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:3003;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
+    server {
+      listen 443 ssl; server_name _; client_max_body_size 50M;
+      ssl_certificate /tls/tls.crt; ssl_certificate_key /tls/tls.key;
+      underscores_in_headers on; ignore_invalid_headers off;
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:3003;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
 ---
 apiVersion: v1
 kind: Service
 metadata: { name: metrics-pro, namespace: cometchat, labels: { app.kubernetes.io/name: metrics-pro } }
 spec:
   selector: { app.kubernetes.io/name: metrics-pro }
-  ports: [{ name: http, port: 80, targetPort: 3003 }]
+  ports: [{ name: http, port: 80, targetPort: 80 }, { name: https, port: 443, targetPort: 443 }]
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -121,13 +223,63 @@ spec:
           startupProbe: { tcpSocket: { port: 5000 }, periodSeconds: 10, failureThreshold: 30 }
           readinessProbe: { tcpSocket: { port: 5000 }, periodSeconds: 10 }
           resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: "1", memory: 1Gi } }
+        # pod-TLS sidecar: terminate the wildcard cert on :443 for east-west HTTPS; :80 stays plain HTTP.
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80, name: http }, { containerPort: 443, name: https }]
+          volumeMounts:
+            - { name: nginx-config, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+            - { name: tls, mountPath: /tls, readOnly: true }
+          readinessProbe: { httpGet: { path: /nginx-health, port: 80 }, initialDelaySeconds: 10, periodSeconds: 10 }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }
       volumes:
         - { name: config, secret: { secretName: extensions-config } }
         - { name: lp-patch, configMap: { name: linkpreview-patch } }   # link-preview after_message patch
+        - { name: nginx-config, configMap: { name: extensions-nginx-config } }
+        - { name: tls, secret: { secretName: wildcard-tls } }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: extensions-nginx-config, namespace: cometchat }
+data:
+  default.conf: |
+    server {
+      listen 80; server_name _; client_max_body_size 50M;
+      underscores_in_headers on; ignore_invalid_headers off;   # east-west auth headers (app_secret/api_key) carry underscores; nginx drops them by default -> forward verbatim
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
+    server {
+      listen 443 ssl; server_name _; client_max_body_size 50M;
+      ssl_certificate /tls/tls.crt; ssl_certificate_key /tls/tls.key;
+      underscores_in_headers on; ignore_invalid_headers off;
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
 ---
 apiVersion: v1
 kind: Service
 metadata: { name: extensions, namespace: cometchat, labels: { app.kubernetes.io/name: extensions } }
 spec:
   selector: { app.kubernetes.io/name: extensions }
-  ports: [{ name: http, port: 80, targetPort: 5000 }]
+  ports: [{ name: http, port: 80, targetPort: 80 }, { name: https, port: 443, targetPort: 443 }]

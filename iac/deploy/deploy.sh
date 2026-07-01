@@ -466,25 +466,70 @@ phase_node_apps() {
 #   Reconcile-safe (coredns-custom ConfigMap). See k8s/coredns-split-horizon.yaml.
 # =============================================================================
 phase_coredns() {
-  step "coredns split-horizon — *.$DOMAIN -> in-cluster ingress ($INGRESS_INTERNAL_IP)"
+  step "coredns split-horizon (POD-TLS) — on-prem FQDNs -> in-cluster Service :443, catch-all -> ingress ($INGRESS_INTERNAL_IP)"
   open_tunnel
-  local dom_re="${DOMAIN//./\\.}"                  # escape dots for the CoreDNS template regex
-  # 1) internal ingress ClusterIP (the split-horizon TARGET) + the coredns-custom zone (kept for RKE2
-  #    versions that import coredns-custom).
-  sed -e "s|__DOMAIN__|$DOMAIN|g" -e "s|__DOMAIN_RE__|$dom_re|g" -e "s|__INGRESS_IP__|$INGRESS_INTERNAL_IP|g" \
-      "$K8S/coredns-split-horizon.yaml" | kc apply -f - >/dev/null
-  # 2) THE WORKING FIX: a HelmChartConfig that adds the $DOMAIN zone (*.$DOMAIN -> $INGRESS_INTERNAL_IP)
-  #    straight into the rke2-coredns Corefile, and survives helm reconciles + reboots. Our rke2-coredns
-  #    does NOT `import` the coredns-custom ConfigMap, so #1 alone is INERT — this HCC is what actually
-  #    makes pods resolve *.$DOMAIN to the in-cluster ingress (east-west stays in-cluster, no LB hairpin).
-  sed -e "s|__DOMAIN__|$DOMAIN|g" -e "s|__DOMAIN_RE__|$dom_re|g" -e "s|__INGRESS_IP__|$INGRESS_INTERNAL_IP|g" \
-      "$K8S/coredns-splithorizon-hcc.yaml" | kc apply -f - >/dev/null
-  ok "applied internal ingress ClusterIP + coredns split-horizon zone (HelmChartConfig) for $DOMAIN"
-  # helm-controller re-renders rke2-coredns from the HCC (~30-60s); wait for the Corefile to carry the zone.
-  local i
-  for i in $(seq 1 24); do kc -n kube-system get cm rke2-coredns-rke2-coredns -o jsonpath='{.data.Corefile}' 2>/dev/null | grep -q "$DOMAIN:53" && break; sleep 5; done
-  kc -n kube-system rollout status deploy/rke2-coredns --timeout=90s >/dev/null 2>&1 \
-    && ok "CoreDNS reloaded with split-horizon zone" || warn "CoreDNS not confirmed (self-reloads; verify: kc -n kube-system get cm rke2-coredns-rke2-coredns -o jsonpath='{.data.Corefile}' | grep $DOMAIN)"
+  local dom_re="${DOMAIN//./\\.}"                  # escape dots for the CoreDNS regex
+  # 1) catch-all backing Service: rke2 ingress-nginx is a hostNetwork DaemonSet with NO ClusterIP, so the
+  #    pinned INGRESS_INTERNAL_IP the catch-all points at is a blackhole without this. Gives it the ingress
+  #    pods as endpoints so un-rewritten *.$DOMAIN storage hosts (media/data/files-onprem) route in-cluster.
+  kc apply -f "$K8S/ingress-internal-svc.yaml" >/dev/null 2>&1 \
+    && ok "ingress-internal Service ($INGRESS_INTERNAL_IP) backs the catch-all (media/data/files-onprem in-cluster)" \
+    || warn "ingress-internal-svc apply failed — media/stickers may 000"
+  # 2) POD-TLS split-horizon HCC: build the per-FQDN `rewrite stop` block from the SERVICE_MAP (single source
+  #    of truth), inject it into the HCC template, apply. Each on-prem FQDN -> its Service (nginx sidecar
+  #    terminates wildcard-tls on :443). Durable: the helm-controller re-renders the Corefile from this HCC.
+  DOMAIN="$DOMAIN" DOMAIN_RE="$dom_re" INGRESS_IP="$INGRESS_INTERNAL_IP" NS="$NS" HCC="$K8S/coredns-splithorizon-hcc.yaml" \
+    python3 - > /tmp/cc-coredns-hcc.yaml <<'PY'
+import os
+d=os.environ['DOMAIN']; dre=os.environ['DOMAIN_RE']; ip=os.environ['INGRESS_IP']; ns=os.environ['NS']
+# region-prefixed hosts (us.<host>.<domain>) need the regex variant too (answer auto preserves the {appId}/region label)
+WILDCARD={"api-onprem","apiclient-onprem","websocket-onprem"}
+# SINGLE SOURCE OF TRUTH: on-prem subdomain label -> in-cluster Service name (ns = $NS). Add a row to expose a host.
+SERVICE_MAP=[
+  ("api-onprem","chatapi"),("apiclient-onprem","chatapi"),("websocket-onprem","websocket"),("ws-onprem","websocket"),
+  ("rule-onprem","moderationservice"),("webhooks-onprem","globalwebhooks"),("notifications-onprem","notificationscore"),
+  ("metrics-onprem","analytics"),("metrics-pro-onprem","metrics-pro"),("internal-search-onprem","service-search"),
+  ("internal-vcb-onprem","visual-chat-builder"),("internal-apivcb-onprem","visual-chat-builder"),
+  ("extensions-onprem","extensions"),("stickers-onprem","extensions"),("thumbnail-generator-onprem","extensions"),
+  ("link-preview-onprem","extensions"),("polls-onprem","extensions"),("document-onprem","extensions"),
+  ("whiteboard-onprem","extensions"),("document-embed-onprem","document-embed"),("whiteboard-embed-onprem","whiteboard"),
+  ("apimgmt","mgmtapi"),("app","dashboard"),("test.antivirus","clamav"),
+]
+IND="          "  # 10 spaces: the plugin list-item indent inside servers[0].plugins
+L=[]
+for label,svc in SERVICE_MAP:
+    tgt=f"{svc}.{ns}.svc.cluster.local"; lre=label.replace('.','\\.')
+    if label in WILDCARD:
+        L+=[f"{IND}- name: rewrite", f"{IND}  parameters: stop", f"{IND}  configBlock: |-",
+            f"{IND}    name regex (.*)\\.{lre}\\.{dre} {tgt}", f"{IND}    answer auto"]
+    L.append(f"{IND}- name: rewrite")
+    L.append(f"{IND}  parameters: stop name exact {label}.{d} {tgt}")
+# SaaS data-plane fallbacks the SDK/dashboard may hardcode -> keep IN-CLUSTER (defense-in-depth data residency)
+for h in ["api.cometchat.com","apiclient-onprem.cometchat.com"]:
+    L+=[f"{IND}- name: rewrite", f"{IND}  parameters: stop name exact {h} chatapi.{ns}.svc.cluster.local"]
+block="\n".join(L)
+tpl=open(os.environ['HCC']).read()
+out=tpl.replace(f"{IND}# __REWRITES__", block).replace("__DOMAIN_RE__",dre).replace("__INGRESS_IP__",ip)
+import sys; sys.stdout.write(out)
+PY
+  if ! grep -q 'rewrite stop name exact api-onprem' /tmp/cc-coredns-hcc.yaml 2>/dev/null; then
+    warn "coredns HCC render produced no rewrites — aborting coredns (check SERVICE_MAP / template)"; return 1
+  fi
+  kc apply -f /tmp/cc-coredns-hcc.yaml >/dev/null \
+    && ok "applied POD-TLS split-horizon HCC (per-FQDN rewrites -> Service:443, catch-all -> $INGRESS_INTERNAL_IP)" \
+    || { warn "coredns HCC apply failed"; return 1; }
+  # 3) helm-controller re-renders the Corefile from the HCC (~30-90s); wait for it to carry a rewrite.
+  local i ok_rw=""
+  for i in $(seq 1 30); do
+    kc -n kube-system get cm rke2-coredns-rke2-coredns -o jsonpath='{.data.Corefile}' 2>/dev/null \
+      | grep -q "rewrite stop name exact api-onprem.$DOMAIN" && { ok_rw=1; break; }; sleep 5
+  done
+  [ -n "$ok_rw" ] && ok "Corefile carries the pod-TLS rewrites" \
+    || warn "Corefile did NOT pick up rewrites (helm-controller slow? verify: kc -n kube-system get cm rke2-coredns-rke2-coredns -o jsonpath='{.data.Corefile}')"
+  # 4) confirm CoreDNS is healthy after the reload (a bad Corefile CrashLoops it -> DNS outage; check + warn loudly).
+  kc -n kube-system rollout status deploy/rke2-coredns --timeout=120s >/dev/null 2>&1 \
+    && ok "CoreDNS healthy after pod-TLS split-horizon reload" \
+    || err "CoreDNS NOT healthy after reload — check 'kc -n kube-system get pods -l k8s-app=kube-dns' and logs; roll back the HCC if CrashLooping"
 }
 
 # =============================================================================

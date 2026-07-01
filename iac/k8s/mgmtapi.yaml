@@ -12,6 +12,26 @@ data:
   default.conf: |
     server {
       listen 80; server_name _; client_max_body_size 50M;
+      underscores_in_headers on;       # forward east-west auth headers with underscores -> fastcgi params (chat-api-HANDOFF)
+      ignore_invalid_headers off;
+      root /var/www/public; index index.php;
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / { try_files $uri $uri/ /index.php?$query_string; }
+      location ~ \.php$ {
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+        fastcgi_read_timeout 300;
+      }
+    }
+    # pod-TLS (colleague parity): terminate the wildcard cert on :443 so east-west calls (CoreDNS ->
+    # Service ClusterIP:443) are real HTTPS verified against *.<domain>, not just ingress-terminated.
+    server {
+      listen 443 ssl; server_name _; client_max_body_size 50M;
+      ssl_certificate /tls/tls.crt; ssl_certificate_key /tls/tls.key;
+      underscores_in_headers on;       # forward east-west auth headers with underscores -> fastcgi params (chat-api-HANDOFF)
+      ignore_invalid_headers off;
       root /var/www/public; index index.php;
       location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
       location / { try_files $uri $uri/ /index.php?$query_string; }
@@ -78,14 +98,16 @@ spec:
           resources: { requests: { cpu: 250m, memory: 512Mi }, limits: { cpu: "2", memory: 2Gi } }
         - name: nginx
           image: nginx:1.27-alpine
-          ports: [{ containerPort: 80, name: http }]
+          ports: [{ containerPort: 80, name: http }, { containerPort: 443, name: https }]
           volumeMounts:
             - { name: www, mountPath: /var/www, readOnly: true }
             - { name: nginx-config, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+            - { name: tls, mountPath: /tls, readOnly: true }
           readinessProbe: { httpGet: { path: /nginx-health, port: 80 }, initialDelaySeconds: 10, periodSeconds: 10 }
           resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 500m, memory: 256Mi } }
       volumes:
         - { name: www, emptyDir: {} }
+        - { name: tls, secret: { secretName: wildcard-tls } }
         - { name: cc-ca, secret: { secretName: wildcard-tls, items: [{ key: tls.crt, path: ca.crt }] } }
         - { name: env-secret, secret: { secretName: mgmtapi-env } }
         - { name: jwt-secret, secret: { secretName: jwt-keys } }
@@ -97,4 +119,4 @@ kind: Service
 metadata: { name: mgmtapi, namespace: cometchat, labels: { app.kubernetes.io/name: mgmtapi } }
 spec:
   selector: { app.kubernetes.io/name: mgmtapi }
-  ports: [{ name: http, port: 80, targetPort: 80 }, { name: fpm, port: 9000, targetPort: 9000 }]
+  ports: [{ name: http, port: 80, targetPort: 80 }, { name: https, port: 443, targetPort: 443 }, { name: fpm, port: 9000, targetPort: 9000 }]

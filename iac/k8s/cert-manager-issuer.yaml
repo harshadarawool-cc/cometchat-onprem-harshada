@@ -45,6 +45,7 @@ spec:
     - api-onprem.cometchat-cluster-2.in
     - apiclient-onprem.cometchat-cluster-2.in
     - websocket-onprem.cometchat-cluster-2.in
+    - ws-onprem.cometchat-cluster-2.in                # websocket alias (east-west SERVICE_MAP -> websocket:443)
     - extensions-onprem.cometchat-cluster-2.in
     - media-onprem.cometchat-cluster-2.in
     - "*.media-onprem.cometchat-cluster-2.in"
@@ -69,6 +70,7 @@ spec:
     - rule-onprem.cometchat-cluster-2.in
     - internal-search-onprem.cometchat-cluster-2.in
     - internal-vcb-onprem.cometchat-cluster-2.in
+    - internal-apivcb-onprem.cometchat-cluster-2.in   # VCB api host (east-west SERVICE_MAP -> visual-chat-builder:443)
     - metrics-pro-onprem.cometchat-cluster-2.in
     - mail.cometchat-cluster-2.in
     - test.antivirus.cometchat-cluster-2.in

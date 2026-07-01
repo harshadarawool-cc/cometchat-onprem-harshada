@@ -18,14 +18,18 @@ NS = os.environ.get("NS", "cometchat")
 _IAC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../iac
 KC = os.environ.get("KUBECONFIG", os.path.join(_IAC, "kubeconfig-6444"))
 
-# name, digest, port, env_path, health_path(None=tcp), wants_jwt
+# name, digest, port, env_path, health_path(None=tcp), wants_jwt, tls_sidecar
 # ONLY services with NO curated k8s/apps manifest (see header).
 # Pinned by DIGEST (immutable) — was mutable :tag. Repin from the ECR digest table when updating.
+# tls_sidecar: True  -> per-pod nginx dual :80/:443 sidecar (colleague/pod-TLS parity) + <name>-nginx
+#              ConfigMap (WS Upgrade headers, wildcard-tls at /tls) + Service http/https/app ports.
+#              False -> bare pod (app container only, Service targets the app port directly).
+# ai-agent-service STAYS BARE (tls_sidecar=False) — no east-west TLS front.
 NODE = [
-    ("websocket", "sha256:57c6d000f704f5c0f4cab6f46ca6f6ef982ab46eb3d79dc48265c58e8c2e3972", 8080, "/app/.env", "/v1/health", True),
-    ("moderationservice", "sha256:b6dcb064715215059bc7b3db4c001e912bdf0b629defc59504e5ae70b61f0f5d", 3000, "/app/.env", "/health", False),
-    ("visual-chat-builder", "sha256:58f9279b775c9ffdbef65576046506a97ea85f6b711de8d0fdf80913e2c6e204", 3000, "/app/.env", "/v1/health-check", False),
-    ("ai-agent-service", "sha256:5adf6f3fec9768699eb4df8dd9ef1962a2a4d72eed621a062e79dc0ebe7207df", 4002, "/app/.env", None, False),
+    ("websocket", "sha256:57c6d000f704f5c0f4cab6f46ca6f6ef982ab46eb3d79dc48265c58e8c2e3972", 8080, "/app/.env", "/v1/health", True, True),
+    ("moderationservice", "sha256:b6dcb064715215059bc7b3db4c001e912bdf0b629defc59504e5ae70b61f0f5d", 3000, "/app/.env", "/health", False, True),
+    ("visual-chat-builder", "sha256:58f9279b775c9ffdbef65576046506a97ea85f6b711de8d0fdf80913e2c6e204", 3000, "/app/.env", "/v1/health-check", False, True),
+    ("ai-agent-service", "sha256:5adf6f3fec9768699eb4df8dd9ef1962a2a4d72eed621a062e79dc0ebe7207df", 4002, "/app/.env", None, False, False),
 ]
 # name, digest, env_path, start_cmd  (workers: no Service)
 WORKERS = [
@@ -44,10 +48,13 @@ def probe(health, port):
         return f"httpGet: {{ path: {health}, port: {port} }}"
     return f"tcpSocket: {{ port: {port} }}"
 
-def node_yaml(name, digest, port, envp, health, jwt):
+def node_yaml(name, digest, port, envp, health, jwt, tls=False):
     jwt_mount = f"\n            - {{ name: jwt, mountPath: /app/jwtrsakey.pem, subPath: jwtrsakey.pem, readOnly: true }}" if jwt else ""
     jwt_vol = "\n        - { name: jwt, secret: { secretName: jwt-public } }" if jwt else ""
-    return f"""---
+    if not tls:
+        # BARE pod (no per-pod TLS sidecar) — app container only, Service targets the app port directly.
+        # ai-agent-service intentionally lives here (excluded from the pod-TLS front).
+        return f"""---
 apiVersion: apps/v1
 kind: Deployment
 metadata: {{ name: {name}, namespace: {NS}, labels: {{ app.kubernetes.io/name: {name} }} }}
@@ -75,6 +82,92 @@ metadata: {{ name: {name}, namespace: {NS}, labels: {{ app.kubernetes.io/name: {
 spec:
   selector: {{ app.kubernetes.io/name: {name} }}
   ports: [{{ name: http, port: 80, targetPort: {port} }}, {{ name: app, port: {port}, targetPort: {port} }}]
+"""
+    # PER-POD TLS sidecar (pod-TLS / colleague parity). Adds ONLY the pod-TLS bits on top of the bare
+    # pod: a <name>-nginx ConfigMap with dual :80/:443 server blocks (WS Upgrade headers +
+    # underscores_in_headers on / ignore_invalid_headers off — LOAD-BEARING for east-west auth headers
+    # app_secret/api_key that carry underscores), an nginx:1.27-alpine sidecar exposing :80 + :443 with
+    # wildcard-tls mounted at /tls, and a Service exposing http/https/app. The app container, its port,
+    # digest, jwt mount and readinessProbe are UNCHANGED from the bare path above.
+    return f"""---
+apiVersion: v1
+kind: ConfigMap
+metadata: {{ name: {name}-nginx, namespace: {NS} }}
+data:
+  default.conf: |
+    server {{
+      listen 80; server_name _; client_max_body_size 50M;
+      underscores_in_headers on; ignore_invalid_headers off;
+      location = /nginx-health {{ access_log off; add_header Content-Type application/json; return 200 '{{"status":"ok"}}'; }}
+      location / {{
+        proxy_pass http://127.0.0.1:{port};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }}
+    }}
+    # pod-TLS (colleague parity): terminate the wildcard cert on :443 so east-west calls (CoreDNS ->
+    # Service ClusterIP:443) are real HTTPS verified against *.<domain>, not just ingress-terminated.
+    server {{
+      listen 443 ssl; server_name _; client_max_body_size 50M;
+      ssl_certificate /tls/tls.crt; ssl_certificate_key /tls/tls.key;
+      underscores_in_headers on; ignore_invalid_headers off;
+      location = /nginx-health {{ access_log off; add_header Content-Type application/json; return 200 '{{"status":"ok"}}'; }}
+      location / {{
+        proxy_pass http://127.0.0.1:{port};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }}
+    }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {{ name: {name}, namespace: {NS}, labels: {{ app.kubernetes.io/name: {name} }} }}
+spec:
+  replicas: 1
+  selector: {{ matchLabels: {{ app.kubernetes.io/name: {name} }} }}
+  template:
+    metadata: {{ labels: {{ app.kubernetes.io/name: {name} }} }}
+    spec:
+      imagePullSecrets: [{{ name: ecr-pull }}]
+      containers:
+        - name: {name}
+          image: {ECR}@{digest}
+          ports: [{{ containerPort: {port} }}]
+          volumeMounts:
+            - {{ name: env, mountPath: {envp}, subPath: .env, readOnly: true }}{jwt_mount}
+          readinessProbe: {{ {probe(health, port)}, initialDelaySeconds: 15, periodSeconds: 10, failureThreshold: 12 }}
+          resources: {{ requests: {{ cpu: 100m, memory: 256Mi }}, limits: {{ cpu: "1", memory: 1Gi }} }}
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{{ containerPort: 80, name: http }}, {{ containerPort: 443, name: https }}]
+          volumeMounts:
+            - {{ name: nginxcfg, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }}
+            - {{ name: tls, mountPath: /tls, readOnly: true }}
+          readinessProbe: {{ httpGet: {{ path: /nginx-health, port: 80 }}, initialDelaySeconds: 10, periodSeconds: 10 }}
+          resources: {{ requests: {{ cpu: 25m, memory: 64Mi }}, limits: {{ cpu: 200m, memory: 128Mi }} }}
+      volumes:
+        - {{ name: env, secret: {{ secretName: {name}-env }} }}{jwt_vol}
+        - {{ name: nginxcfg, configMap: {{ name: {name}-nginx }} }}
+        - {{ name: tls, secret: {{ secretName: wildcard-tls }} }}
+---
+apiVersion: v1
+kind: Service
+metadata: {{ name: {name}, namespace: {NS}, labels: {{ app.kubernetes.io/name: {name} }} }}
+spec:
+  selector: {{ app.kubernetes.io/name: {name} }}
+  ports: [{{ name: http, port: 80, targetPort: 80 }}, {{ name: https, port: 443, targetPort: 443 }}, {{ name: app, port: {port}, targetPort: {port} }}]
 """
 
 def worker_yaml(name, digest, envp, cmd=None):

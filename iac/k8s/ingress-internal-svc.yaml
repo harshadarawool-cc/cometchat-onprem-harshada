@@ -1,0 +1,23 @@
+# The pinned internal ClusterIP that the split-horizon CoreDNS catch-all points at (INGRESS_INTERNAL_IP,
+# 10.43.200.10). The rke2 ingress-nginx controller is a hostNetwork DaemonSet with NO ClusterIP of its own,
+# so without this Service the catch-all target is a BLACKHOLE: every un-rewritten *.<domain> host — the
+# storage/media hosts data-onprem / media-onprem / files-onprem (stickers, avatars, chat uploads) — resolves
+# to 10.43.200.10 and TIMES OUT (curl 000). This Service gives that IP real endpoints (the ingress pods), so
+# those hosts route in-cluster to ingress-nginx -> seaweedfs, keeping file bytes on-prem (data residency).
+# Applied by deploy.sh phase_coredns (pod-TLS split-horizon). clusterIP MUST equal INGRESS_INTERNAL_IP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: rke2-ingress-nginx-internal
+  namespace: kube-system
+  labels: { app.kubernetes.io/part-of: cometchat-split-horizon }
+spec:
+  type: ClusterIP
+  clusterIP: 10.43.200.10          # MUST equal INGRESS_INTERNAL_IP in customer.conf / deploy.sh
+  selector:
+    app.kubernetes.io/name: rke2-ingress-nginx
+    app.kubernetes.io/instance: rke2-ingress-nginx
+    app.kubernetes.io/component: controller
+  ports:
+    - { name: http,  port: 80,  targetPort: 80,  protocol: TCP }
+    - { name: https, port: 443, targetPort: 443, protocol: TCP }
