@@ -17,6 +17,7 @@ carried-over deep-dives (still valid where noted).
 - [ENCRYPTION-AT-REST.md](ENCRYPTION-AT-REST.md) — disk (CMEK) + etcd/secrets + SeaweedFS SSE.
 - [DNS-RECORDS.md](DNS-RECORDS.md) — Route53 records (round-robin A across both HAProxy IPs).
 - [SECURITY.md](SECURITY.md) — posture: enforced vs. gated next steps.
+- [CREDENTIALS-FLOW.md](CREDENTIALS-FLOW.md) — how each cluster mints its own fresh DB passwords (no reuse of staging creds).
 - [MIGRATION-FROM-LB.md](MIGRATION-FROM-LB.md) — what changed vs the LB baseline, and why.
 
 ## Carried-over deep-dives (still valid)
