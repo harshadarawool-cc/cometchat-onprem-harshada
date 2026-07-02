@@ -1,0 +1,19 @@
+# Compatibility S3 Service: keeps the in-cluster name `seaweedfs.cometchat:8333`
+# working after consolidation. The apps (chatapi's hardcoded SECURED_AWS_ENDPOINT,
+# any other client) call `seaweedfs.cometchat:8333`; this Service points that name at
+# the HA filer's S3 gateway (component=filer) — so NO app manifest needs editing.
+#
+# Applying this over the retired single-pod's `seaweedfs` Service just repoints its
+# selector to the filer (clusterIP is preserved). Apply AFTER the filer is Ready.
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs
+  namespace: cometchat
+  labels: { app: seaweedfs, role: s3-alias }
+spec:
+  type: ClusterIP
+  selector: { app: seaweedfs, component: filer }
+  ports:
+    - { name: s3,   port: 8333, targetPort: 8333 }
+    - { name: http, port: 8888, targetPort: 8888 }

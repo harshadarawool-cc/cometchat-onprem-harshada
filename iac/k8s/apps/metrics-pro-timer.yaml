@@ -1,0 +1,31 @@
+# metrics-pro timer-task: PCU/monthly-user-count batch. SAME image as metrics-pro (pro-metrics).
+# The NEW obfuscated image dropped pm2/ecosystem — the timer entry (src/scripts/monthly_user_count.jsc)
+# is a ONE-SHOT batch: it computes the running month's user count -> MySQL `metrics`, then EXITS cleanly.
+# A Deployment crashloops on that clean exit (exit 0 -> restart), and the image is distroless (no sh) so a
+# shell `while/sleep` loop can't run either. So this is a daily CronJob running the bare `node -e` one-shot
+# (the insert is an upsert; re-runs just refresh the running count). Shares metrics-pro-env
+# (DB_DATABASE=metrics, REDIS_DATABASE=0). Background batch — no Service/ingress.
+# DEV/TODO: confirm the intended cadence (best-guess daily).
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: metrics-pro-timer, namespace: cometchat, labels: { app.kubernetes.io/name: metrics-pro-timer } }
+spec:
+  schedule: "0 2 * * *"              # daily 02:00 UTC (cadence best-guess — confirm with dev)
+  concurrencyPolicy: Forbid          # singleton so PCU isn't double-tallied
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata: { labels: { app.kubernetes.io/name: metrics-pro-timer } }
+        spec:
+          restartPolicy: Never
+          imagePullSecrets: [{ name: ecr-pull-secret }]
+          containers:
+            - name: metrics-pro-timer
+              image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:3a127b3334712094c1401f7c8380b83e97ef829b358175b799cae596ed0ec12d  # :pro-metrics (latest)
+              workingDir: /app
+              command: ["node","--max-old-space-size=4096","-e","require('bytenode'); require('/app/src/scripts/monthly_user_count.jsc')"]
+              envFrom: [{ secretRef: { name: metrics-pro-env } }]
+              resources: { requests: { cpu: 128m, memory: 512Mi }, limits: { cpu: "1", memory: 2Gi } }

@@ -1,0 +1,78 @@
+---
+- name: Preflight — datastore credentials MUST be provided (fresh per-cluster creds, not the placeholder)
+  hosts: datastores
+  gather_facts: false
+  run_once: true
+  tasks:
+    - name: FAIL if any datastore password is missing or still the CHANGE_ME placeholder
+      assert:
+        that:
+          - "vault_mysql_root_password is defined and (vault_mysql_root_password | length) > 0 and vault_mysql_root_password != 'CHANGE_ME_MATCH_STAGING'"
+          - "vault_tidb_root_password  is defined and (vault_tidb_root_password  | length) > 0 and vault_tidb_root_password  != 'CHANGE_ME_MATCH_STAGING'"
+          - "vault_mongo_admin_password is defined and (vault_mongo_admin_password | length) > 0"
+        fail_msg: "Datastore creds missing/placeholder — run ./deploy.sh credgen (generates secrets/infra/cluster-creds.yml, passed to ansible via -e). DBs + app secrets must share these."
+        success_msg: "datastore credentials present (fresh per-cluster creds)"
+
+- name: Base setup (all datastore VMs)
+  hosts: datastores
+  become: true
+  roles:
+    - common
+
+- name: MongoDB replica set (rs0)
+  hosts: mongo
+  become: true
+  pre_tasks:
+    - name: Generate replica-set keyfile once
+      shell: openssl rand -base64 756
+      register: _mongo_keyfile
+      run_once: true
+      delegate_to: "{{ groups['mongo'][0] }}"
+      changed_when: false
+      no_log: true
+    - name: Share keyfile with all mongo hosts
+      set_fact:
+        mongo_keyfile_content: "{{ hostvars[groups['mongo'][0]]._mongo_keyfile.stdout }}"
+      no_log: true
+  roles:
+    - mongo
+  post_tasks:
+    - name: Initialize replica set + admin user (primary only)
+      when: mongo_role | default('') == 'primary'
+      block:
+        - name: Wait for mongod to accept connections
+          wait_for: { host: 127.0.0.1, port: "{{ mongo_port | default(27017) }}", timeout: 120, delay: 5 }
+        - name: Render rs_init.js
+          template: { src: roles/mongo/templates/rs_init.js.j2, dest: /tmp/rs-init.js, mode: "0600" }
+        - name: Run rs_init.js (RS initiate + admin user via localhost exception)
+          command: mongosh --quiet --file /tmp/rs-init.js
+          register: rs_init
+          changed_when: "'RS_INITIATED' in rs_init.stdout or 'ADMIN_USER_CREATED' in rs_init.stdout"
+        - name: Show rs_init result
+          debug: { var: rs_init.stdout_lines }
+        - name: Remove rs_init.js
+          file: { path: /tmp/rs-init.js, state: absent }
+
+- name: Redis — 4 Sentinel clusters
+  hosts: redis
+  become: true
+  roles:
+    - redis
+
+- name: Kafka (KRaft)
+  hosts: kafka
+  become: true
+  roles:
+    - kafka
+
+- name: TiDB (MySQL-wire)
+  hosts: tidb
+  become: true
+  roles:
+    - tidb
+
+- name: MySQL
+  hosts: mysql
+  become: true
+  roles:
+    - mysql

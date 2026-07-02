@@ -1,0 +1,31 @@
+# Kafka KRaft — {{ inventory_hostname }} (node {{ kafka_node_id }})
+node.id={{ kafka_node_id }}
+process.roles=broker,controller
+
+controller.quorum.voters={{ controller_quorum_voters }}
+controller.listener.names=CONTROLLER
+
+listeners=PLAINTEXT://{{ int_ip }}:{{ kafka_port }},CONTROLLER://{{ int_ip }}:{{ kafka_controller_port }}
+advertised.listeners=PLAINTEXT://{{ int_ip }}:{{ kafka_port }}
+inter.broker.listener.name=PLAINTEXT
+listener.security.protocol.map=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+
+log.dirs={{ kafka_data_dir }}
+
+num.partitions={{ kafka_num_partitions }}
+default.replication.factor={{ kafka_default_replication_factor }}
+min.insync.replicas={{ kafka_min_insync_replicas }}
+
+log.retention.hours={{ kafka_log_retention_hours }}
+log.segment.bytes={{ kafka_log_segment_bytes }}
+log.retention.bytes={{ kafka_log_retention_bytes }}
+
+offsets.topic.replication.factor={{ kafka_default_replication_factor }}
+transaction.state.log.replication.factor={{ kafka_default_replication_factor }}
+transaction.state.log.min.isr={{ kafka_min_insync_replicas }}
+
+num.network.threads=3
+num.io.threads=8
+socket.send.buffer.bytes=102400
+socket.receive.buffer.bytes=102400
+socket.request.max.bytes=104857600

@@ -1,0 +1,154 @@
+# chatapi (Laravel + Octane/RoadRunner :8000) — latest ECR image + NEW license scheme:
+#   mount ONLY license.txt (root) + .env + the new JWT keypair (private/public.pem).
+#   NO license_public.pem / fat keys (code handles license verification).
+# S3 -> in-cluster SeaweedFS (cometchat ns). nginx sidecar fronts :8000 on :80.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: chatapi-nginx-config, namespace: cometchat }
+data:
+  default.conf: |
+    server {
+      listen 80; server_name _; client_max_body_size 50M;
+      underscores_in_headers on;       # east-west auth headers (app_secret/api_key) carry underscores;
+      ignore_invalid_headers off;      # nginx DROPS underscore headers by default -> forward verbatim
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Expect "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 600;
+      }
+    }
+    # pod-TLS (colleague parity): terminate the wildcard cert on :443 so east-west calls (CoreDNS ->
+    # Service ClusterIP:443) are real HTTPS verified against *.<domain>, not just ingress-terminated.
+    server {
+      listen 443 ssl; server_name _; client_max_body_size 50M;
+      ssl_certificate /tls/tls.crt; ssl_certificate_key /tls/tls.key;
+      underscores_in_headers on;       # east-west auth headers (app_secret/api_key) carry underscores;
+      ignore_invalid_headers off;      # nginx DROPS underscore headers by default -> forward verbatim
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Expect "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 600;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: chatapi, namespace: cometchat, labels: { app.kubernetes.io/name: chatapi } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: chatapi } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: chatapi } }
+    spec:
+      imagePullSecrets: [{ name: ecr-pull }]
+      initContainers:
+        - name: setup
+          image: busybox:1.36
+          command: ["sh","-c"]
+          args:
+            - |
+              cp /secrets/env/.env          /app-config/.env
+              cp /secrets/jwt/private.pem   /app-config/private.pem
+              cp /secrets/jwt/public.pem    /app-config/public.pem
+              cp /secrets/license/license.txt /app-config/license.txt
+              echo "staged .env + new JWT keypair + license.txt"
+          volumeMounts:
+            - { name: app-config, mountPath: /app-config }
+            - { name: env-secret, mountPath: /secrets/env }
+            - { name: jwt-secret, mountPath: /secrets/jwt }
+            - { name: license-secret, mountPath: /secrets/license }
+      containers:
+        - name: chatapi
+          # NOTE: chat-api builds are ionCube-encoded with a SHORT expiry ("encoded file ... has expired" ->
+          # CrashLoopBackOff once a new pod re-loads the code past the expiry date). The 2026-06-22 build
+          # (79ecc5) expired 2026-06-24. Re-pin to the latest `:chat-api` digest when this recurs; ask
+          # CometChat for a non-expiring production build. Refresh ecr-pull-secret first (ECR token ~12h).
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:e35cfbec6b8ac7a894cf94176f6baac13df00c13c7bff3725fe7964475d89558  # :chat-api (fixed pin)
+          command: ["sh","-c"]
+          args:
+            - |
+              cp /app-config/.env /var/www/.env
+              cp /app-config/private.pem /app-config/public.pem /var/www/
+              cp /app-config/license.txt /var/www/license.txt
+              mkdir -p /var/www/storage/framework/cache /var/www/storage/framework/views \
+                       /var/www/storage/framework/sessions /var/www/storage/logs /var/www/bootstrap/cache
+              chmod -R 777 /var/www/storage /var/www/bootstrap/cache
+              # === migrate (self-healing on TiDB) =======================================
+              # TiDB has no CREATE/DROP TRIGGER -> the trigger migration(s) fail and halt the
+              # rest. Loop: run migrate; if it fails on a TRIGGER migration, mark that one as
+              # applied (PDO insert) and retry, so the remaining ~85 migrations run. Idempotent:
+              # once complete, "Nothing to migrate" breaks the loop immediately.
+              echo "=== migrate (TiDB-aware) ==="
+              for i in 1 2 3 4 5 6 7 8 9 10; do
+                OUT="$(php artisan migrate --force 2>&1)"; echo "$OUT" | tail -6
+                echo "$OUT" | grep -qiE "Nothing to migrate" && { echo "migrate complete"; break; }
+                echo "$OUT" | grep -qiE "TRIGGER" || { echo "non-trigger migrate state — continuing boot"; break; }
+                FAIL="$(echo "$OUT" | grep -iE "FAIL" | tail -1 | awk '{print $1}')"
+                [ -n "$FAIL" ] || break
+                echo "faking TiDB-incompatible trigger migration: $FAIL"
+                DBH="$(grep -E '^DB_HOST=' /var/www/.env | head -1 | cut -d= -f2- | tr -d '\"')"
+                DBP="$(grep -E '^DB_PORT=' /var/www/.env | head -1 | cut -d= -f2- | tr -d '\"')"; DBP="${DBP:-3306}"
+                DBN="$(grep -E '^DB_DATABASE=' /var/www/.env | head -1 | cut -d= -f2- | tr -d '\"')"
+                DBU="$(grep -E '^DB_USERNAME=' /var/www/.env | head -1 | cut -d= -f2- | tr -d '\"')"
+                DBW="$(grep -E '^DB_PASSWORD=' /var/www/.env | head -1 | cut -d= -f2- | tr -d '\"')"
+                MIG="$FAIL" DBH="$DBH" DBP="$DBP" DBN="$DBN" DBU="$DBU" DBW="$DBW" php -r '
+                  $p=new PDO("mysql:host=".getenv("DBH").";port=".getenv("DBP").";dbname=".getenv("DBN"), getenv("DBU"), getenv("DBW"));
+                  $b=$p->query("SELECT IFNULL(MAX(batch),0)+1 FROM migrations")->fetchColumn();
+                  $s=$p->prepare("INSERT INTO migrations (migration,batch) VALUES (?,?)"); $s->execute([getenv("MIG"),$b]);
+                  echo "faked ".getenv("MIG")." (batch $b)\n";' || { echo "fake insert failed"; break; }
+              done
+              echo "=== octane :8000 ==="; exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8000 --workers=12 --max-requests=1000
+          envFrom: []
+          env:
+            # AWS_* (generic/data disk): internal endpoint — server-side only, no browser URLs.
+            - { name: AWS_ENDPOINT, value: "http://seaweedfs.cometchat:8333" }
+            - { name: AWS_USE_PATH_STYLE_ENDPOINT, value: "true" }
+            # SECURED_* (chat media): chatapi PRESIGNS media URLs and the AWS SDK signs them against
+            # THIS endpoint — so it MUST be the PUBLIC host the browser can reach. The same host
+            # resolves in-cluster via split-horizon CoreDNS (-> internal ingress -> seaweedfs), so
+            # server-side PUTs stay in-cluster; the presigned GET host is now browser-resolvable.
+            # (Matches the colleague's proven cluster-4 model. Was http://seaweedfs.cometchat:8333,
+            # which leaked the internal host into the <img> URL -> broken thumbnails.)
+            - { name: SECURED_AWS_ENDPOINT, value: "https://media-onprem.cometchat-cluster-2.in" }
+            - { name: SECURED_AWS_USE_PATH_STYLE_ENDPOINT, value: "true" }
+            - { name: AWS_ACCESS_KEY_ID, valueFrom: { secretKeyRef: { name: seaweedfs-s3-creds, key: access-key } } }
+            - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: seaweedfs-s3-creds, key: secret-key } } }
+          volumeMounts: [{ name: app-config, mountPath: /app-config }]
+          startupProbe: { tcpSocket: { port: 8000 }, periodSeconds: 10, failureThreshold: 60 }
+          readinessProbe: { httpGet: { path: /health-check, port: 8000 }, periodSeconds: 10 }
+          resources: { requests: { cpu: 250m, memory: 768Mi }, limits: { cpu: "2", memory: 4Gi } } # mem 3Gi->4Gi to fit 12 octane workers (was --workers=4)
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80, name: http }, { containerPort: 443, name: https }]
+          volumeMounts:
+            - { name: nginx-config, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+            - { name: tls, mountPath: /tls, readOnly: true }
+          readinessProbe: { httpGet: { path: /nginx-health, port: 80 }, initialDelaySeconds: 10, periodSeconds: 10 }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }
+      volumes:
+        - { name: app-config, emptyDir: {} }
+        - { name: env-secret, secret: { secretName: chatapi-env } }
+        - { name: jwt-secret, secret: { secretName: jwt-keys } }
+        - { name: license-secret, secret: { secretName: cc-license } }
+        - { name: nginx-config, configMap: { name: chatapi-nginx-config } }
+        - { name: tls, secret: { secretName: wildcard-tls } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: chatapi, namespace: cometchat, labels: { app.kubernetes.io/name: chatapi } }
+spec:
+  selector: { app.kubernetes.io/name: chatapi }
+  ports: [{ name: http, port: 80, targetPort: 80 }, { name: https, port: 443, targetPort: 443 }, { name: app, port: 8000, targetPort: 8000 }]

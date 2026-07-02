@@ -1,0 +1,28 @@
+# Dashboard nginx — serves the static SPA AND rewrites the one hardcoded public host
+# the CometChat build left in (the apikeys data-host fallback `||"api.cometchat.com"`).
+# sub_filter swaps it to the on-prem data host at serve-time so NO browser call leaves to
+# the public cloud. (Proper fix is a dashboard build with apiHost parameterized; this is the
+# on-prem-correct workaround until then.)
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: dashboard-nginx, namespace: cometchat }
+data:
+  default.conf: |
+    server {
+      listen 80;
+      root /usr/share/nginx/html;
+      index index.html;
+      location = /nginx-health { access_log off; return 200 'ok'; }
+
+      # rewrite the hardcoded public data host -> on-prem (keeps all data on cometchat-cluster-2.in)
+      sub_filter_once off;
+      sub_filter_types application/javascript text/javascript application/json text/html;
+      sub_filter 'api.cometchat.com' 'api-onprem.cometchat-cluster-2.in';
+      sub_filter 'api-%s.cometchat.io' 'api-%s.cometchat-cluster-2.in';
+      # safety net: rewrite any baked old-domain fallback left in the bundle
+      sub_filter 'cc-cluster-1.io' 'cometchat-cluster-2.in';
+
+      location / {
+        try_files $uri $uri/ /index.html;
+      }
+    }

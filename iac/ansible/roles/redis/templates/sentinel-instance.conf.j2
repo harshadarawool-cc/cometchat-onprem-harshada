@@ -1,0 +1,14 @@
+# Redis Sentinel — cluster "{{ item.key }}"
+port {{ item.value.sentinel_port }}
+bind 127.0.0.1 {{ int_ip }}
+protected-mode no
+dir /var/lib/redis-sentinel-{{ item.key }}
+sentinel monitor {{ item.value.master_name }} {{ redis_master_node }} {{ item.value.data_port }} {{ sentinel_quorum }}
+sentinel down-after-milliseconds {{ item.value.master_name }} {{ sentinel_down_after_ms }}
+sentinel failover-timeout {{ item.value.master_name }} {{ sentinel_failover_timeout }}
+sentinel parallel-syncs {{ item.value.master_name }} 1
+{% if redis_requirepass | length > 0 %}
+requirepass {{ redis_requirepass }}
+sentinel auth-pass {{ item.value.master_name }} {{ redis_requirepass }}
+{% endif %}
+logfile /var/log/redis/sentinel-{{ item.key }}.log

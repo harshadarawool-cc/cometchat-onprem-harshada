@@ -1,0 +1,5 @@
+{ "identities": [
+  { "name": "cometchat", "credentials": [ { "accessKey": "cometchat169888916d79019e", "secretKey": "de849398b4463e144288a97bcb7eedc52d0d94b1067c59be9096ca51e7134d0e" } ], "actions": ["Admin","Read","Write","List","Tagging"] },
+  { "name": "cometchat-default", "credentials": [ { "accessKey": "cometchata5b00bcaee19", "secretKey": "b4a8013d6ce5be728619aae81b260c347118cc25" } ], "actions": ["Admin","Read","Write","List","Tagging"] },
+  { "name": "anonymous", "actions": ["Read:uploads","Read:assets","Read:stickers","Read:visual-chat-builder-app","List:uploads","List:assets","List:stickers","List:visual-chat-builder-app"] }
+] }

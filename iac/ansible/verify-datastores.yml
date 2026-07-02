@@ -1,0 +1,51 @@
+---
+- name: MongoDB replica set health
+  hosts: mongo[0]
+  become: true
+  gather_facts: false
+  tasks:
+    - shell: >
+        mongosh --quiet -u root -p '{{ vault_mongo_admin_password }}' --authenticationDatabase admin
+        --eval 'JSON.stringify({ok: rs.status().ok, members: rs.status().members.map(m => m.name + "=" + m.stateStr)})'
+      register: m
+      no_log: true
+      changed_when: false
+    - debug: { msg: "MONGO rs.status -> {{ m.stdout }}" }
+
+- name: Redis cluster health (per VM)
+  hosts: redis
+  become: true
+  gather_facts: false
+  tasks:
+    - shell: |
+        echo -n "role=$(redis-cli -p 6379 info replication | grep -oE 'role:[a-z]+' | cut -d: -f2) "
+        echo -n "slaves=$(redis-cli -p 6379 info replication | grep -oE 'connected_slaves:[0-9]+' | cut -d: -f2) "
+        echo -n "link=$(redis-cli -p 6379 info replication | grep -oE 'master_link_status:[a-z]+' | cut -d: -f2) "
+        echo "sentinel_master=$(redis-cli -p 26379 sentinel get-master-addr-by-name mymaster | tr '\n' ':')"
+      register: r
+      changed_when: false
+    - debug: { msg: "{{ inventory_hostname }}: {{ r.stdout }}" }
+
+- name: Kafka KRaft quorum
+  hosts: kafka[0]
+  become: true
+  gather_facts: false
+  tasks:
+    - shell: /opt/kafka/bin/kafka-metadata-quorum.sh --bootstrap-server {{ int_ip }}:9092 describe --status 2>&1 | grep -E "LeaderId|CurrentVoters|NumVoters" || true
+      register: k
+      changed_when: false
+    - debug: { var: k.stdout_lines }
+
+- name: TiDB + MySQL reachability
+  hosts: tidb:mysql
+  become: true
+  gather_facts: false
+  tasks:
+    - shell: >
+        mysql -h {{ int_ip }} -P 3306 -u root
+        -p'{{ vault_tidb_root_password if "tidb" in group_names else vault_mysql_root_password }}'
+        -e "SELECT VERSION() AS version; SHOW DATABASES;" 2>&1
+      register: db
+      no_log: true
+      changed_when: false
+    - debug: { msg: "{{ inventory_hostname }} -> {{ db.stdout_lines | default(db.stderr_lines) }}" }

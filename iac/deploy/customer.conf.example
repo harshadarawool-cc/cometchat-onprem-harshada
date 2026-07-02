@@ -1,0 +1,48 @@
+# =============================================================================
+# CometChat on-prem (GCP RKE2) — CUSTOMER CONFIG
+# -----------------------------------------------------------------------------
+# This is the ONLY file you need to edit. `./deploy.sh` reads it and also
+# generates terraform/terraform.tfvars from it, so Terraform stays in sync.
+#
+#   1. Edit the values below for your GCP project.
+#   2. Run:   ./deploy.sh            (infra: VPC, VMs, datastores, RKE2)
+#   3. Tear down with:  ./destroy.sh
+# =============================================================================
+
+# ---- GCP project / location (REQUIRED) --------------------------------------
+PROJECT="CHANGE_ME-gcp-project-id"     # your GCP project id
+REGION="asia-south1"
+ZONE="asia-south1-a"
+
+# ---- Naming: prefix for every VM / network / LB -----------------------------
+PREFIX="cometchat-onprem"              # all resources are named ${PREFIX}-*
+
+# ---- SSH public key for Ansible (REQUIRED) ----------------------------------
+# Must be the PUBLIC half of the key in ansible/ssh/cometchat_rke2 .
+# Generate a pair:  ssh-keygen -t ed25519 -f ansible/ssh/cometchat_rke2 -N ''
+# then paste the contents of ansible/ssh/cometchat_rke2.pub here:
+SSH_PUBLIC_KEY=""
+
+# ---- Edge exposure: who may reach the public LB on 80/443 -------------------
+# Default open. Tighten to your office/VPN CIDRs for production.
+EDGE_ALLOWED_CIDRS='["0.0.0.0/0"]'
+
+# ---- RKE2 node sizing -------------------------------------------------------
+RKE2_SERVER_COUNT=1                    # set 3 for an HA control plane
+RKE2_SERVER_TYPE="e2-standard-4"
+RKE2_AGENT_COUNT=3
+RKE2_AGENT_TYPE="e2-standard-8"
+
+# ---- Disk type --------------------------------------------------------------
+# pd-standard avoids the SSD_TOTAL_GB quota; use pd-balanced/pd-ssd if you have quota.
+DISK_TYPE="pd-standard"
+
+# =============================================================================
+# APP PHASE (optional) — only used by `./deploy.sh app-all`. Infra ignores these.
+# =============================================================================
+DOMAIN="cometchat-cluster-2.in"               # the app domain (split-horizon + ingress hosts)
+LICENCE_FILE=""                        # absolute path to your CometChat license.txt
+ECR_REGISTRY="894996064311.dkr.ecr.us-east-2.amazonaws.com"
+ECR_REGION="us-east-2"
+AWS_PROFILE="staging"                  # aws CLI profile that can pull the ECR images
+VAULT_ENVS_DIR=""                      # dir of per-service env JSON files (your app secrets)

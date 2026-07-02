@@ -1,0 +1,80 @@
+---
+- name: Install Docker + compose + mysql client
+  apt:
+    name: [docker.io, docker-compose-v2, mysql-client]
+    state: present
+    update_cache: true
+    lock_timeout: 300
+
+- name: Enable + start Docker
+  systemd: { name: docker, enabled: true, state: started }
+
+- name: Check filesystem on data disk
+  command: blkid {{ tidb_data_disk_path }}
+  register: tidb_blkid
+  changed_when: false
+  failed_when: false
+
+- name: Create ext4 on data disk (if unformatted)
+  command: mkfs.ext4 -F {{ tidb_data_disk_path }}
+  when: tidb_blkid.rc != 0
+
+- name: Mount data disk at /data
+  mount:
+    path: /data
+    src: "{{ tidb_data_disk_path }}"
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+
+- name: Create TiDB dirs
+  file: { path: "{{ item }}", state: directory, mode: "0755" }
+  loop:
+    - /opt/tidb
+    - "{{ tidb_data_dir }}/pd"
+    - "{{ tidb_data_dir }}/tikv"
+
+- name: Deploy TiProxy config
+  copy:
+    dest: /opt/tidb/tiproxy.toml
+    mode: "0644"
+    content: |
+      [proxy]
+      addr = "0.0.0.0:3306"
+      pd-addrs = "pd0:2379"
+      require-backend-tls = false
+      [security]
+      server-tls = {}
+      [log]
+      level = "info"
+
+- name: Deploy docker-compose
+  template: { src: docker-compose.yml.j2, dest: /opt/tidb/docker-compose.yml, mode: "0644" }
+  notify: Restart TiDB
+
+- name: Start TiDB cluster
+  shell: docker compose up -d
+  args: { chdir: /opt/tidb }
+  register: compose_up
+  changed_when: "'Started' in compose_up.stderr or 'Created' in compose_up.stderr"
+
+- name: Wait for TiDB (via TiProxy :3306)
+  shell: |
+    for i in $(seq 1 60); do
+      mysql -h {{ int_ip }} -P 4000 -u root -e "SELECT 1" >/dev/null 2>&1 && { echo ready; exit 0; }
+      sleep 5
+    done
+    exit 1
+  register: tidb_ready
+  changed_when: false
+
+- name: Set TiDB root password
+  shell: mysql -h {{ int_ip }} -P 4000 -u root -e "ALTER USER 'root'@'%' IDENTIFIED BY '{{ tidb_root_password }}'; FLUSH PRIVILEGES;"
+  when: tidb_ready.stdout | trim == "ready"
+  changed_when: true
+
+- name: Create application databases
+  shell: mysql -h {{ int_ip }} -P 3306 -u root -p'{{ tidb_root_password }}' -e "CREATE DATABASE IF NOT EXISTS {{ item }};"
+  loop: "{{ tidb_databases }}"
+  when: tidb_ready.stdout | trim == "ready"
+  changed_when: true

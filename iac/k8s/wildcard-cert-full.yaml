@@ -1,0 +1,45 @@
+# =============================================================================
+# Domain-wide wildcard Certificate  —  for the internal-HTTPS (per-pod TLS) pass.
+#
+# STATUS: STAGED for the post-baseline HTTPS pass. NOT wired into deploy.sh yet.
+#   The baseline `cert-manager-issuer.yaml` ships the ClusterIssuer + a per-host-SAN Certificate
+#   into secret `wildcard-tls`. This file REPLACES that Certificate with a DOMAIN-WIDE wildcard,
+#   because once every pod's nginx sidecar presents the cert for `server_name _` (any Host asked),
+#   the cert must cover ALL internal single-label hosts — not just an enumerated list.
+#
+# WHY domain-wide + KEEP the scoped 2-label wildcards (STEP1-NETWORKING-PLAN.md §3):
+#   `*.cometchat-cluster-2.in` covers every SINGLE-label host (rule-onprem, webhooks-onprem,
+#   ws-onprem, app, apimgmt, metrics-*, internal-*, media-onprem, extensions-onprem, …) in ONE
+#   SAN. BUT a domain wildcard does NOT match 2-label hosts like `<appId>.api-onprem.<domain>`
+#   (wildcards match exactly one label), so the scoped per-app wildcards below MUST stay.
+#
+#   Reuses the SAME issuer (letsencrypt-route53, Route53 DNS-01) and SAME secret name
+#   (wildcard-tls) so the sidecars' mount path is unchanged. Issuer itself is defined in
+#   cert-manager-issuer.yaml — this file ships only the Certificate.
+#
+# Public Let's Encrypt cert => already in every image's system trust store => no
+# NODE_EXTRA_CA_CERTS / CURL_CA_BUNDLE needed (Aryan runs zero CA envs).
+# =============================================================================
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cometchat-wildcard-full
+  namespace: cometchat
+  labels: { app.kubernetes.io/part-of: cometchat-internal-https }
+spec:
+  secretName: wildcard-tls          # same secret the sidecars mount (/etc/nginx/ssl)
+  issuerRef:
+    name: letsencrypt-route53       # defined in cert-manager-issuer.yaml
+    kind: ClusterIssuer
+  commonName: cometchat-cluster-2.in
+  dnsNames:
+    # --- apex + domain-wide wildcard: covers ALL single-label hosts in one SAN ---
+    - cometchat-cluster-2.in
+    - "*.cometchat-cluster-2.in"
+    # --- scoped 2-label wildcards ({appId}. SDK pattern) — a domain wildcard does NOT cover these ---
+    - "*.api-onprem.cometchat-cluster-2.in"
+    - "*.apiclient-onprem.cometchat-cluster-2.in"
+    - "*.websocket-onprem.cometchat-cluster-2.in"
+    - "*.extensions-onprem.cometchat-cluster-2.in"
+    - "*.media-onprem.cometchat-cluster-2.in"

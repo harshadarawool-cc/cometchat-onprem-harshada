@@ -1,0 +1,14 @@
+---
+mongo_major_version: "7.0"
+mongo_repo_codename: "jammy" # MongoDB 7.0 has no 'noble' repo; jammy packages run fine on Ubuntu 24.04
+mongo_port: 27017
+mongo_replica_set_name: "{{ mongo_replset | default('rs0') }}"
+mongo_bind_address: "0.0.0.0"
+mongo_data_dir: /var/lib/mongodb
+mongo_data_disk_path: /dev/disk/by-id/google-data # GCP attached disk device_name=data
+mongo_keyfile_path: /etc/mongo/keyfile
+
+# Apps connect as root (matches staging MONGO_URI). Password MUST equal staging
+# so the unchanged envs work. Set via group_vars/vault.yml (ansible-vault).
+mongo_admin_user: root
+mongo_admin_password: "{{ vault_mongo_admin_password | default('CHANGE_ME_MATCH_STAGING') }}"

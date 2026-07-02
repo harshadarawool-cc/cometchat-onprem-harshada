@@ -1,0 +1,4 @@
+---
+# Full bring-up: datastores first, then the RKE2 cluster.
+- import_playbook: datastores.yml
+- import_playbook: rke2.yml

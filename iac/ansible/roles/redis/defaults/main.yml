@@ -1,0 +1,11 @@
+---
+# Empty = no auth (matches staging where REDIS_PASSWORD is null/empty so envs work
+# unchanged). Set a value to enable requirepass + sentinel auth on all clusters.
+redis_requirepass: ""
+redis_maxmemory: "512mb"
+redis_maxmemory_policy: "noeviction"
+redis_master_name: mymaster
+
+sentinel_quorum: 2
+sentinel_down_after_ms: 5000
+sentinel_failover_timeout: 60000

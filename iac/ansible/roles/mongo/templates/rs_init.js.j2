@@ -1,0 +1,47 @@
+// rs_init.js — no-auth bootstrap via localhost exception.
+// Initiates the replica set and creates the root admin user. Safe to rerun.
+const adminUser = "{{ mongo_admin_user }}";
+const adminPass = "{{ mongo_admin_password }}";
+const rsName = "{{ mongo_replica_set_name }}";
+const adminDb = db.getSiblingDB("admin");
+
+const cfg = {
+  _id: rsName,
+  members: [
+{% for m in mongo_members %}
+    { _id: {{ loop.index0 }}, host: "{{ m.host }}:{{ mongo_port }}", priority: {{ m.priority }} }{{ "," if not loop.last else "" }}
+{% endfor %}
+  ]
+};
+
+// Detect RS via isMaster/hello (auth-free — rs.status() throws Unauthorized once
+// auth is on but no admin user exists yet, which wrongly looked "configured").
+let rsConfigured = false;
+try {
+  const im = rs.isMaster();
+  rsConfigured = (im.ismaster === true) || (im.secondary === true) || (im.setName === rsName);
+} catch (e) { rsConfigured = false; }
+
+if (!rsConfigured) {
+  try { rs.initiate(cfg); print("RS_INITIATED"); }
+  catch (e) { print("RS_INITIATE_SKIPPED: " + ((e && e.message) || e)); }
+}
+
+// Wait until THIS node is a writable primary (auth-free) BEFORE createUser,
+// so we never race "not primary" right after initiate.
+let retries = 60;
+while (retries-- > 0) {
+  try { if (rs.isMaster().ismaster === true) break; } catch (e) {}
+  sleep(1000);
+}
+
+// Create the root admin user via the localhost exception (idempotent + re-runnable).
+try {
+  adminDb.createUser({ user: adminUser, pwd: adminPass, roles: [{ role: "root", db: "admin" }] });
+  print("ADMIN_USER_CREATED");
+} catch (e) {
+  const msg = (e && e.message) ? e.message : "";
+  if (e && (e.codeName === "DuplicateKey" || msg.includes("already exists"))) { print("ADMIN_USER_EXISTS"); }
+  else if (msg.includes("not authorized") || (e && e.codeName === "Unauthorized")) { print("ADMIN_USER_EXISTS_AUTH"); } // user exists -> localhost exception closed
+  else { throw e; }
+}

@@ -1,0 +1,111 @@
+# =============================================================================
+# Reusable per-pod nginx:alpine TLS sidecar  —  the per-pod-TLS (internal-HTTPS) building block.
+#
+# STATUS: STAGED for the post-baseline HTTPS pass. This is a SNIPPET, not a deployable manifest
+#   (it is not applied by deploy.sh). Copy the ConfigMap + the container/volume blocks into each
+#   east-west Deployment during the HTTPS rollout (STEP1-NETWORKING-PLAN.md §1). App container is
+#   UNTOUCHED — a sidecar is a separate container, so this stays within the no-app-patching rule.
+#
+# Reference: Aryan's block in
+#   Downloads/cc-handoffs/cometchat-chatapi-handoff 2/charts/app/templates/nginx-configmap.yaml
+#   (dual listen 80/443; server_name _; underscores_in_headers on; ignore_invalid_headers off;
+#    proxy_set_header Host $host; X-Forwarded-Proto https; Expect ""; client_max_body_size 50M).
+#
+# ---------------------------------------------------------------------------------------------
+# HOW TO ATTACH (per pod):
+#   1. Ship a per-app copy of the ConfigMap below with <APP>/<APP_PORT> substituted (name it
+#      "<app>-nginx"); set APP_PORT to the app's real listen port (chatapi 8000, mgmtapi 9000,
+#      websocket 8080, moderationservice 3000, globalwebhooks 3006, notificationscore 3100,
+#      service-search 3000, analytics 8080, metrics-pro 3003, extensions 5000,
+#      visual-chat-builder 3000, document-embed 9001, whiteboard 9000, seaweedfs 8333).
+#   2. Add the `nginx-tls` CONTAINER + the two VOLUMES (tls + conf) to the pod spec (below).
+#   3. Mount secret `wildcard-tls` at /etc/nginx/ssl (keys tls.crt / tls.key).
+#   4. Add a Service port  { name: https, port: 443, targetPort: 443 }  to the app's Service.
+#   5. websocket / document-embed / whiteboard: use the WEBSOCKET location variant (Upgrade/
+#      Connection + proxy_read_timeout 86400s).
+#   HTTP-by-design pods (ai-agent-service, clamav) get NO sidecar — they stay plaintext :80.
+# =============================================================================
+---
+# ---- per-app ConfigMap (substitute <APP> and <APP_PORT>) ------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: <APP>-nginx
+  namespace: cometchat
+  labels: { app.kubernetes.io/part-of: cometchat-internal-https }
+data:
+  default.conf: |
+    # Dual :80 / :443 -> proxy to the app on 127.0.0.1:<APP_PORT>, forwarding EVERY header verbatim.
+    # :80 deliberately does NOT 301 -> https (a redirect makes HTTP clients drop the Authorization
+    # header, silently breaking east-west auth). :80 serves north-south (ingress forwards here in the
+    # hybrid edge, Option B); :443 serves east-west (CoreDNS -> this pod).
+    server {
+      listen 80;
+      listen 443 ssl;
+      server_name _;                       # wildcard-tls cert; the asked Host (incl. {appId}) is kept
+      ssl_certificate     /etc/nginx/ssl/tls.crt;
+      ssl_certificate_key /etc/nginx/ssl/tls.key;
+      underscores_in_headers on;           # DO NOT drop headers with underscores (app_secret, api_key)
+      ignore_invalid_headers off;          # forward every header to the app verbatim, none stripped
+      client_max_body_size 50M;
+      location = /nginx-health { access_log off; return 200 '{"status":"ok"}'; add_header Content-Type application/json; }
+      location / {
+        proxy_pass http://127.0.0.1:<APP_PORT>;
+        proxy_set_header Host $host;                                   # {appId}.<host>.<domain> preserved for routing
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;                     # app always sees https (URL/cookie consistency)
+        proxy_set_header Expect "";                                   # drop Expect:100-continue -> avoids 417 on internal app-create
+        proxy_connect_timeout 60;
+        proxy_read_timeout 600;
+      }
+    }
+---
+# ---- WEBSOCKET variant of `location /` (websocket / document-embed / whiteboard) ------------
+#   Replace the `location / { … }` above with this block for realtime / editor-iframe pods:
+#
+#   location / {
+#     proxy_pass http://127.0.0.1:<APP_PORT>;
+#     proxy_set_header Host $host;
+#     proxy_set_header X-Real-IP $remote_addr;
+#     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#     proxy_set_header X-Forwarded-Proto https;
+#     proxy_set_header Expect "";
+#     proxy_http_version 1.1;
+#     proxy_set_header Upgrade $http_upgrade;
+#     proxy_set_header Connection "upgrade";
+#     proxy_connect_timeout 60;
+#     proxy_read_timeout 86400s;          # long-lived ws connections
+#   }
+#
+# =============================================================================
+# ---- pod-spec fragment: paste the container + volumes into each east-west Deployment ---------
+# spec.template.spec.containers[]:
+#
+#   - name: nginx-tls
+#     image: nginx:alpine
+#     ports:
+#       - { name: http,  containerPort: 80 }
+#       - { name: https, containerPort: 443 }
+#     volumeMounts:
+#       - { name: nginx-tls-conf, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf }
+#       - { name: wildcard-tls,   mountPath: /etc/nginx/ssl, readOnly: true }
+#     readinessProbe:
+#       httpGet: { path: /nginx-health, port: 80 }
+#       initialDelaySeconds: 5
+#       periodSeconds: 10
+#     resources:
+#       requests: { cpu: 25m,  memory: 32Mi }
+#       limits:   { cpu: 250m, memory: 128Mi }
+#
+# spec.template.spec.volumes[]:
+#
+#   - name: nginx-tls-conf
+#     configMap: { name: <APP>-nginx }
+#   - name: wildcard-tls
+#     secret: { secretName: wildcard-tls }   # keys tls.crt / tls.key from the cert
+#
+# ---- Service fragment: add the :443 port to the app's Service -------------------------------
+# spec.ports[]:
+#   - { name: https, port: 443, targetPort: 443, protocol: TCP }
+# =============================================================================

@@ -1,0 +1,25 @@
+---
+# Base setup for every VM (datastores + RKE2 nodes).
+- name: Wait for cloud-init to finish
+  command: cloud-init status --wait
+  changed_when: false
+  failed_when: false
+
+- name: Install base packages
+  apt:
+    name:
+      - curl
+      - gnupg
+      - ca-certificates
+      - chrony
+      - python3
+    state: present
+    update_cache: true
+    lock_timeout: 300
+
+- name: Ensure time sync (chrony) is running
+  systemd:
+    name: chrony
+    enabled: true
+    state: started
+  failed_when: false

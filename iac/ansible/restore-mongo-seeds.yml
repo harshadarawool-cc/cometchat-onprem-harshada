@@ -1,0 +1,118 @@
+---
+# Seed the 6 in-repo Mongo JSON seeds into rs0 — PORTABLE + IDEMPOTENT + SKIP-IF-ABSENT.
+#   These ship in the repo (../../dumps/mongo/*.json) so a fresh clone always seeds identically.
+#   Each seed is a JSON ARRAY of documents (mongoimport --jsonArray). We GUARD each import on
+#   countDocuments so a re-run is a no-op once the target collection already has data.
+#
+#   Seeds (db.collection <- file):
+#     events.triggers                                        <- events.triggers.json
+#         (webhook/trigger master data — the trigger catalogue the dashboard lists)
+#     notifications-core-db.notifications-core-push-settings <- notifications-core-db.notifications-core-push-settings.json
+#         (_id cometchat_default — default push notification preferences)
+#     vcb.templates                                          <- vcb.templates.json
+#         (_id default — Visual Chat Builder default template; without it VCB builds 400)
+#     moderation.configurations                              <- moderation.configurations.json
+#     moderation.rules                                       <- moderation.rules.json
+#     moderation.profanewordkeywords                         <- moderation.profanewordkeywords.json
+#         (moderation default config / rules / profanity keyword master data)
+#
+#   Connects to mongo at 10.23.10.11:27017 as admin (mongo_admin_user/mongo_admin_password from
+#   vault), authSource admin, replicaSet rs0. Runs from the mongo primary host.
+- name: Seed in-repo Mongo JSON seeds into rs0 (idempotent)
+  hosts: mongo[0]
+  become: true
+  gather_facts: false
+  vars:
+    repo_mongo_dir: "{{ playbook_dir }}/../../dumps/mongo"
+    mongo_uri: "mongodb://10.23.10.11:27017/?replicaSet=rs0&authSource=admin"
+    mongo_user: "{{ mongo_admin_user | default('root') }}"
+    mongo_pass: "{{ vault_mongo_admin_password }}"
+    # db / collection / source file. All source files are JSON arrays (--jsonArray).
+    mongo_seeds:
+      - { db: "events",                 coll: "triggers",                        file: "events.triggers.json" }
+      - { db: "notifications-core-db",  coll: "notifications-core-push-settings", file: "notifications-core-db.notifications-core-push-settings.json" }
+      - { db: "vcb",                    coll: "templates",                       file: "vcb.templates.json" }
+      - { db: "moderation",             coll: "configurations",                  file: "moderation.configurations.json" }
+      - { db: "moderation",             coll: "rules",                           file: "moderation.rules.json" }
+      - { db: "moderation",             coll: "profanewordkeywords",             file: "moderation.profanewordkeywords.json" }
+  tasks:
+    - name: Check which seed files exist (on the control host)
+      delegate_to: localhost
+      become: false
+      stat: { path: "{{ repo_mongo_dir }}/{{ item.file }}" }
+      register: seed_stat
+      loop: "{{ mongo_seeds }}"
+      loop_control: { label: "{{ item.db }}.{{ item.coll }}" }
+
+    - name: Note skipped (absent) seeds
+      debug:
+        msg: "SKIP {{ item.item.db }}.{{ item.item.coll }} — no seed at {{ repo_mongo_dir }}/{{ item.item.file }}"
+      when: not item.stat.exists
+      loop: "{{ seed_stat.results }}"
+      loop_control: { label: "{{ item.item.db }}.{{ item.item.coll }}" }
+
+    - name: Build list of present seeds
+      set_fact:
+        seeds: "{{ seed_stat.results | selectattr('stat.exists') | map(attribute='item') | list }}"
+
+    - name: Copy present seeds to the primary
+      copy:
+        src: "{{ repo_mongo_dir }}/{{ item.file }}"
+        dest: "/tmp/mongo-seed-{{ item.db }}.{{ item.coll }}.json"
+        mode: "0644"
+      loop: "{{ seeds }}"
+      loop_control: { label: "{{ item.db }}.{{ item.coll }}" }
+
+    - name: Count existing docs in each target collection (idempotency guard)
+      shell: >
+        mongosh --quiet "{{ mongo_uri }}"
+        -u '{{ mongo_user }}' -p '{{ mongo_pass }}'
+        --eval 'db.getSiblingDB("{{ item.db }}").getCollection("{{ item.coll }}").countDocuments({})'
+      loop: "{{ seeds }}"
+      loop_control: { label: "{{ item.db }}.{{ item.coll }}" }
+      register: seed_counts
+      no_log: true
+      changed_when: false
+
+    - name: Import seeds where the collection is empty (idempotent, --jsonArray)
+      shell: >
+        mongoimport --uri "{{ mongo_uri }}"
+        -u '{{ mongo_user }}' -p '{{ mongo_pass }}'
+        --db '{{ item.item.db }}' --collection '{{ item.item.coll }}'
+        --file "/tmp/mongo-seed-{{ item.item.db }}.{{ item.item.coll }}.json"
+        --jsonArray --mode=upsert 2>&1 | tail -2
+      loop: "{{ seed_counts.results }}"
+      loop_control: { label: "{{ item.item.db }}.{{ item.item.coll }}" }
+      register: seed_import
+      no_log: true
+      changed_when: true
+      when: (item.stdout | trim | int) == 0
+
+    - name: Note already-seeded collections (guard hit — no import)
+      debug:
+        msg: "already seeded {{ item.item.db }}.{{ item.item.coll }} ({{ item.stdout | trim }} docs) — skip import"
+      when: (item.stdout | trim | int) > 0
+      loop: "{{ seed_counts.results }}"
+      loop_control: { label: "{{ item.item.db }}.{{ item.item.coll }}" }
+
+    - name: Verify final doc counts
+      shell: >
+        mongosh --quiet "{{ mongo_uri }}"
+        -u '{{ mongo_user }}' -p '{{ mongo_pass }}'
+        --eval 'db.getSiblingDB("{{ item.db }}").getCollection("{{ item.coll }}").countDocuments({})'
+      loop: "{{ seeds }}"
+      loop_control: { label: "{{ item.db }}.{{ item.coll }}" }
+      register: final_counts
+      no_log: true
+      changed_when: false
+
+    - name: Report
+      debug:
+        msg: "{{ item.item.db }}.{{ item.item.coll }} -> {{ item.stdout | trim }} docs"
+      loop: "{{ final_counts.results }}"
+      loop_control: { label: "{{ item.item.db }}.{{ item.item.coll }}" }
+
+    - name: Cleanup
+      file: { path: "/tmp/mongo-seed-{{ item.db }}.{{ item.coll }}.json", state: absent }
+      loop: "{{ seeds }}"
+      loop_control: { label: "{{ item.db }}.{{ item.coll }}" }

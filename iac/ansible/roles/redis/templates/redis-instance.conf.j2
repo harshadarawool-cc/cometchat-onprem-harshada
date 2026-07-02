@@ -1,0 +1,19 @@
+# Redis data instance — cluster "{{ item.key }}" ({{ item.value.purpose | default('') }})
+port {{ item.value.data_port }}
+bind 127.0.0.1 {{ int_ip }}
+protected-mode {{ 'no' if (redis_requirepass | length == 0) else 'yes' }}
+{% if redis_requirepass | length > 0 %}
+requirepass {{ redis_requirepass }}
+masterauth {{ redis_requirepass }}
+{% endif %}
+{% if int_ip != redis_master_node %}
+replicaof {{ redis_master_node }} {{ item.value.data_port }}
+{% endif %}
+dir /var/lib/redis-{{ item.key }}
+appendonly no
+save ""
+maxmemory {{ redis_maxmemory }}
+maxmemory-policy {{ redis_maxmemory_policy }}
+pidfile /run/redis/{{ item.key }}.pid
+logfile /var/log/redis/{{ item.key }}.log
+loglevel notice

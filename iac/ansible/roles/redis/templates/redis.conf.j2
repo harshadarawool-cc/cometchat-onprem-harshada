@@ -1,0 +1,15 @@
+bind 0.0.0.0
+port 6379
+protected-mode {{ 'yes' if (redis_requirepass | length > 0) else 'no' }}
+{% if redis_requirepass | length > 0 %}
+requirepass {{ redis_requirepass }}
+masterauth {{ redis_requirepass }}
+{% endif %}
+{% if redis_role == 'replica' %}
+replicaof {{ redis_master_ip }} 6379
+{% endif %}
+dir /var/lib/redis
+appendonly no
+save ""
+maxmemory {{ redis_maxmemory }}
+maxmemory-policy {{ redis_maxmemory_policy }}

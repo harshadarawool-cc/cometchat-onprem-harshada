@@ -1,0 +1,104 @@
+# Collaborative editors behind the extensions service:
+#   document-embed = CometChat-customised Etherpad 1.8.4 (:9001) — pads in mgmt MySQL (etherpad DB)
+#   whiteboard     = cracker0dks/whiteboard v1.0.0 (:9000) — stateless, accessToken "board"
+# The /v1/create APIs (document-onprem / whiteboard-onprem) are served by the EXTENSIONS service,
+# not these editors. These two only serve the editor iframes (document-embed-onprem / whiteboard-embed-onprem).
+# Images are pinned by digest from OUR ECR (mirrored from akamai Harbor — no VPN needed).
+# Settings secret `document-embed-settings` (carries the MySQL password) is created by deploy.sh
+# from .secrets/etherpad/ (NOT committed). Whiteboard config has no secrets -> ConfigMap.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: whiteboard-config, namespace: cometchat }
+data:
+  config.default.yml: |
+    # Collaborative whiteboard config. accessToken is the shared secret with the extensions
+    # service (extensions signs whiteboard URLs with it). Keep "board" unless changed in both places.
+    backend:
+      accessToken: "board"
+      enableWebdav: false
+      performance:
+        whiteboardInfoBroadcastFreq: 1
+    frontend:
+      onWhiteboardLoad:
+        setReadOnly: false
+        displayInfo: false
+      showSmallestScreenIndicator: true
+      imageDownloadFormat: "jpeg"
+      drawBackgroundGrid: false
+      backgroundGridImage: "bg_grid.png"
+      performance:
+        refreshInfoFreq: 5
+        pointerEventsThrottling:
+          - { fromUserCount: 0,  minDistDelta: 1, maxFreq: 30 }
+          - { fromUserCount: 10, minDistDelta: 5, maxFreq: 10 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: document-embed, namespace: cometchat, labels: { app: document-embed } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: document-embed } }
+  template:
+    metadata: { labels: { app: document-embed } }
+    spec:
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      containers:
+        - name: document-embed
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:06aa1266fa1275b7f58908fa30c320ba8326aaaa85aff2143578018592223148  # :document-embed (latest)
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: NODE_ENV, value: production }
+          ports: [{ containerPort: 9001, name: http }]
+          volumeMounts:
+            - { name: settings, mountPath: /app/settings.json, subPath: settings.json, readOnly: true }
+            - { name: var, mountPath: /app/var }   # minify cache; pads live in MySQL
+          readinessProbe: { tcpSocket: { port: 9001 }, initialDelaySeconds: 15, periodSeconds: 10 }
+          livenessProbe:  { tcpSocket: { port: 9001 }, initialDelaySeconds: 40, periodSeconds: 20 }
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 512Mi } }
+      volumes:
+        - name: settings
+          secret: { secretName: document-embed-settings }
+        - name: var
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata: { name: document-embed, namespace: cometchat, labels: { app: document-embed } }
+spec:
+  selector: { app: document-embed }
+  ports: [{ name: http, port: 80, targetPort: 9001 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: whiteboard, namespace: cometchat, labels: { app: whiteboard } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: whiteboard } }
+  template:
+    metadata: { labels: { app: whiteboard } }
+    spec:
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      containers:
+        - name: whiteboard
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:e149acaaa9c922aff0bb5528412c31cb699d9f67fcce334d50b7d34eb70fc041  # :whiteboard (latest)
+          imagePullPolicy: IfNotPresent
+          command: ["node", "scripts/server.js", "--mode=production", "--config=config.default.yml"]
+          env:
+            - { name: NODE_ENV, value: production }
+          ports: [{ containerPort: 9000, name: http }]
+          volumeMounts:
+            - { name: config, mountPath: /app/config.default.yml, subPath: config.default.yml, readOnly: true }
+          readinessProbe: { tcpSocket: { port: 9000 }, initialDelaySeconds: 15, periodSeconds: 10 }
+          livenessProbe:  { tcpSocket: { port: 9000 }, initialDelaySeconds: 30, periodSeconds: 20 }
+          resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { cpu: 300m, memory: 256Mi } }
+      volumes:
+        - name: config
+          configMap: { name: whiteboard-config }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: whiteboard, namespace: cometchat, labels: { app: whiteboard } }
+spec:
+  selector: { app: whiteboard }
+  ports: [{ name: http, port: 80, targetPort: 9000 }]

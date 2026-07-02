@@ -1,0 +1,37 @@
+# Edge routing for the SeaweedFS 4.37 stack — uses OUR existing ingress-nginx + edge LB.
+# The package's 50-ingress-nginx.yaml (a type:LoadBalancer edge) is intentionally NOT used —
+# this cluster has no LoadBalancer-service support. TLS terminates here with `wildcard-tls`
+# (Let's Encrypt via cert-manager/Route53 DNS-01; both hosts are cert SANs).
+#
+#   s3-onprem.cometchat-cluster-2.in  -> seaweedfs-filer:8333  (S3 API alias)
+#   storage.cometchat-cluster-2.in    -> cometchatfs:3300      (the web console)
+# NOTE: the APP-FACING object hosts (media-onprem / data-onprem / *.media-onprem / files-onprem) are
+# owned by the MAIN k8s/ingress.yaml (-> the `seaweedfs` alias Service -> filer). This file only adds
+# the console + the s3-onprem alias. media-onprem is what the filer signs against (S3_EXTERNAL_URL).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: seaweedfs-ha-edge
+  namespace: cometchat
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"          # allow large object PUTs
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - s3-onprem.cometchat-cluster-2.in
+        - storage.cometchat-cluster-2.in
+      secretName: wildcard-tls
+  rules:
+    - host: s3-onprem.cometchat-cluster-2.in
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: seaweedfs-filer, port: { number: 8333 } } } }
+    - host: storage.cometchat-cluster-2.in
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: cometchatfs, port: { number: 3300 } } } }

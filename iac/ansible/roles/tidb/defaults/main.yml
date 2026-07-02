@@ -1,0 +1,7 @@
+---
+tidb_version: "v8.1.0"
+tidb_data_dir: /data/tidb
+tidb_data_disk_path: /dev/disk/by-id/google-data
+tidb_root_password: "{{ vault_tidb_root_password | default('CHANGE_ME_MATCH_STAGING') }}"
+tidb_databases:
+  - cometchat

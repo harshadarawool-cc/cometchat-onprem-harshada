@@ -1,0 +1,322 @@
+[{
+  "_id": {
+    "$oid": "650afaa2422c565d4d19d048"
+  },
+  "id": "message_sent",
+  "__v": 0,
+  "category": "Message",
+  "description": "The hook triggers after the message is sent.",
+  "tags": [
+    "Basic"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa2422c565d4d19d049"
+  },
+  "id": "message_edited",
+  "__v": 0,
+  "category": "Message",
+  "description": "The hook triggers after the message is edited.",
+  "tags": [
+    "Basic"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa3422c565d4d19d04b"
+  },
+  "id": "user_blocked",
+  "__v": 0,
+  "category": "User",
+  "description": "The hook triggers when a user blocks another user.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa3422c565d4d19d04a"
+  },
+  "id": "message_deleted",
+  "__v": 0,
+  "category": "Message",
+  "description": "The hook triggers after the message is deleted.",
+  "tags": [
+    "Basic"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa3422c565d4d19d04d"
+  },
+  "id": "group_created",
+  "__v": 0,
+  "category": "Group",
+  "description": "The hook triggers after the group is created.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa5422c567aea7b9118"
+  },
+  "id": "group_member_added",
+  "__v": 0,
+  "category": "Group",
+  "description": "The hook triggers after members are added to a group.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa5422c5679655b740d"
+  },
+  "id": "group_member_kicked",
+  "__v": 0,
+  "category": "Group",
+  "description": "The hook triggers after members are kicked from a group.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa4422c565d4d19d04e"
+  },
+  "id": "group_updated",
+  "__v": 0,
+  "category": "Group",
+  "description": "The hook triggers after the group is updated.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa4422c5633db7c5e96"
+  },
+  "id": "group_deleted",
+  "__v": 0,
+  "category": "Group",
+  "description": "The hook triggers after the group is deleted.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa3422c565d4d19d04c"
+  },
+  "id": "user_unblocked",
+  "__v": 0,
+  "category": "User",
+  "description": "The hook triggers when a user unblocks another user.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa6422c5679655b740e"
+  },
+  "id": "group_member_banned",
+  "__v": 0,
+  "category": "Group",
+  "description": "The hook triggers after members are banned from a group.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa6422c567aea7b9119"
+  },
+  "id": "group_member_unbanned",
+  "__v": 0,
+  "category": "Group",
+  "description": "The hook triggers after members are unbanned from a group.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa6422c564c17449dd2"
+  },
+  "id": "group_member_scope_changed",
+  "__v": 0,
+  "category": "Group",
+  "description": "The hook triggers if the scope of a member changes in a group.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa7422c5679655b740f"
+  },
+  "id": "group_owner_transferred",
+  "__v": 0,
+  "category": "Group",
+  "description": "The hook triggers if the owner of the group is changed.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa4422c5603f348ed70"
+  },
+  "id": "group_member_joined",
+  "__v": 0,
+  "category": "Group",
+  "description": "The hook triggers after a user joins a group.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa5422c567ae91d89cd"
+  },
+  "id": "group_member_left",
+  "__v": 0,
+  "category": "Group",
+  "description": "The hook triggers after a user leaves the group.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa4422c5633db7e5e90"
+  },
+  "id": "message_reaction_added",
+  "__v": 0,
+  "category": "Message",
+  "description": "The hook triggers when a user reacts to a message.",
+  "tags": [
+    "Advanced-Plus"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa7422c5679655b7410"
+  },
+  "id": "user_connection_status_changed",
+  "__v": 0,
+  "category": "User",
+  "description": "The hook triggers after a user connects/disconnects from the websocket server.",
+  "tags": [
+    "Advanced-Plus"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa7422c5679655b7412"
+  },
+  "id": "message_read_receipt",
+  "__v": 0,
+  "category": "Message",
+  "description": "The hook triggers when the client chat application confirms with Cometchat servers that a message was read.",
+  "tags": [
+    "Advanced-Plus"
+  ]
+},
+{
+  "_id": {
+    "$oid": "669f54ab86d35db8c71d5651"
+  },
+  "id": "message_delivered_to_all",
+  "__v": 0,
+  "category": "Message",
+  "description": "The hook triggers when the client chat application confirms with Cometchat servers that a message was delivered to all in a group.",
+  "tags": [
+    "Advanced-Plus",
+    "Beta"
+  ]
+},
+{
+  "_id": {
+    "$oid": "67dbb3fc466987ed0a9fcb6a"
+  },
+  "id": "moderation_engine_approved",
+  "category": "Moderation",
+  "description": "Triggered when the moderation engine approves a message.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "67aeefbd4b9db72c82e45630"
+  },
+  "id": "moderation_engine_blocked",
+  "category": "Moderation",
+  "description": "Triggered when the moderation engine blocks a message based on failed conditions.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "67aeefc84b9db72c82e45632"
+  },
+  "id": "moderation_manual_approved",
+  "category": "Moderation",
+  "description": "Triggered when a moderator manually approves a previously blocked or flagged message.",
+  "tags": [
+    "Advanced"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa7422c5679655b7411"
+  },
+  "id": "message_delivery_receipt",
+  "__v": 0,
+  "category": "Message",
+  "description": "The hook triggers when the client chat application confirms with Cometchat servers that a message was delivered.",
+  "tags": [
+    "Advanced-Plus"
+  ]
+},
+{
+  "_id": {
+    "$oid": "669f54ab86d35db8c71d5652"
+  },
+  "id": "message_read_by_all",
+  "__v": 0,
+  "category": "Message",
+  "description": "The hook triggers when the client chat application confirms with Cometchat servers that a message was read.",
+  "tags": [
+    "Advanced-Plus",
+    "Beta"
+  ]
+},
+{
+  "_id": {
+    "$oid": "650afaa4422c5633df7e5e91"
+  },
+  "id": "message_reaction_removed",
+  "__v": 0,
+  "category": "Message",
+  "description": "The hook triggers when reaction is removed from a message.",
+  "tags": [
+    "Advanced-Plus"
+  ]
+},
+{
+  "_id": {
+    "$oid": "65535a3f49fa20ef20e9a144"
+  },
+  "id": "user_mentioned",
+  "category": "Message",
+  "description": "The hook triggers when a user is mentioned in a message.",
+  "tags": [
+    "Advanced-Plus"
+  ]
+}]

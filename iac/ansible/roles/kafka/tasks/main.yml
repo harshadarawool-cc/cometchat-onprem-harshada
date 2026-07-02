@@ -1,0 +1,110 @@
+---
+- name: Install Java + tools
+  apt:
+    name: [openjdk-21-jre-headless, wget, tar]
+    state: present
+    update_cache: true
+    lock_timeout: 300
+
+- name: Create kafka group/user
+  group: { name: kafka, state: present }
+- user: { name: kafka, group: kafka, shell: /bin/false, home: "{{ kafka_install_dir }}", create_home: false }
+
+- name: Create Kafka directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: kafka
+    group: kafka
+    mode: "0755"
+  loop:
+    - "{{ kafka_install_dir }}"
+    - "{{ kafka_data_dir }}"
+    - "{{ kafka_log_dir }}"
+
+- name: Check if Kafka is already installed
+  stat:
+    path: "{{ kafka_install_dir }}/bin/kafka-server-start.sh"
+  register: kafka_bin
+
+- name: Download + extract Kafka
+  when: not kafka_bin.stat.exists
+  block:
+    - get_url: { url: "{{ kafka_download_url }}", dest: /tmp/kafka.tgz, timeout: 300 }
+    - unarchive:
+        src: /tmp/kafka.tgz
+        dest: "{{ kafka_install_dir }}"
+        remote_src: true
+        extra_opts: ["--strip-components=1"]
+        owner: kafka
+        group: kafka
+    - file: { path: /tmp/kafka.tgz, state: absent }
+
+- name: Generate KRaft cluster ID (once)
+  command: "{{ kafka_install_dir }}/bin/kafka-storage.sh random-uuid"
+  register: _cluster_id
+  run_once: true
+  delegate_to: "{{ groups['kafka'][0] }}"
+  changed_when: false
+
+- name: Share cluster ID + build quorum voters
+  set_fact:
+    kraft_cluster_id: "{{ hostvars[groups['kafka'][0]]._cluster_id.stdout | trim }}"
+    controller_quorum_voters: "{% for h in groups['kafka'] %}{{ hostvars[h].kafka_node_id }}@{{ hostvars[h].int_ip }}:{{ kafka_controller_port }}{{ ',' if not loop.last else '' }}{% endfor %}"
+
+- name: Deploy server.properties
+  template:
+    src: server.properties.j2
+    dest: "{{ kafka_install_dir }}/config/kraft/server.properties"
+    owner: kafka
+    group: kafka
+    mode: "0644"
+  notify: Restart Kafka
+
+- name: Check if storage formatted
+  stat: { path: "{{ kafka_data_dir }}/meta.properties" }
+  register: kafka_meta
+
+- name: Format KRaft storage
+  command: >-
+    {{ kafka_install_dir }}/bin/kafka-storage.sh format
+    -t {{ kraft_cluster_id }}
+    -c {{ kafka_install_dir }}/config/kraft/server.properties
+  become_user: kafka
+  when: not kafka_meta.stat.exists
+
+- name: Deploy Kafka systemd unit
+  template: { src: kafka.service.j2, dest: /etc/systemd/system/kafka.service, mode: "0644" }
+  notify: [Reload systemd, Restart Kafka]
+
+- name: Enable + start Kafka
+  systemd: { name: kafka, enabled: true, state: started, daemon_reload: true }
+
+- name: Wait for Kafka to be ready (once)
+  shell: |
+    for i in $(seq 1 30); do
+      {{ kafka_install_dir }}/bin/kafka-broker-api-versions.sh --bootstrap-server {{ int_ip }}:{{ kafka_port }} >/dev/null 2>&1 && { echo ready; exit 0; }
+      sleep 3
+    done
+    exit 1
+  register: kafka_ready
+  changed_when: false
+  run_once: true
+  delegate_to: "{{ groups['kafka'][0] }}"
+
+- name: Create topics
+  shell: >-
+    {{ kafka_install_dir }}/bin/kafka-topics.sh
+    --bootstrap-server {{ hostvars[groups['kafka'][0]].int_ip }}:{{ kafka_port }}
+    --create --topic {{ item.name }}
+    --partitions {{ item.partitions | default(kafka_num_partitions) }}
+    --replication-factor {{ item.replication_factor | default(kafka_default_replication_factor) }}
+    --config min.insync.replicas={{ item.min_insync_replicas | default(kafka_min_insync_replicas) }}
+    {% if item.cleanup_policy is defined %}--config cleanup.policy={{ item.cleanup_policy }} {% endif %}
+    {% if item.retention_ms is defined %}--config retention.ms={{ item.retention_ms }} {% endif %}
+    --if-not-exists
+  loop: "{{ kafka_topics }}"
+  loop_control: { label: "{{ item.name }}" }
+  run_once: true
+  delegate_to: "{{ groups['kafka'][0] }}"
+  changed_when: true

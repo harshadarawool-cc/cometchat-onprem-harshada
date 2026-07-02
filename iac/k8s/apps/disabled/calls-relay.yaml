@@ -1,0 +1,79 @@
+# calls-relay / calls-api (Express, bytenode-compiled .jsc) on GKE — ECR image, config via ENV.
+# Entry: node src/app.js (loads app.jsc). Single process. Mongo user = admin (exists), DB `calls`.
+# Health route contains "health-check"; probe TCP :3000 first, then switch to the HTTP path.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: calls-relay
+  namespace: cometchat
+  labels:
+    app.kubernetes.io/name: calls-relay
+    app.kubernetes.io/part-of: cometchat
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: calls-relay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: calls-relay
+        app.kubernetes.io/part-of: cometchat
+    spec:
+      imagePullSecrets:
+        - name: ecr-pull-secret
+      securityContext:
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: calls-relay
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:2a644be68b1e45fd6f117865d5adad60604cd777fefec6cc9ff5d49167cd5e4c
+          # The app is bytenode-compiled (.jsc); bytenode must be preloaded (-r) before requiring
+          # the .jsc files, else Node parses bytecode as JS -> "SyntaxError: Invalid or unexpected
+          # token". (package.json's `node src/app.js` is missing this flag.)
+          command: ["sh", "-c", "cd /app && exec node -r bytenode src/app.js"]
+          envFrom:
+            - secretRef: { name: calls-relay-env }
+          ports:
+            - { containerPort: 3000, name: http }
+          volumeMounts:
+            # This app loads config from a dotenv FILE (/app/src/.env.<ENVIRONMENT>) and errors
+            # if it's absent — so we mount our converted env there (ENVIRONMENT=staging).
+            - { name: envfile, mountPath: /app/src/.env.staging, subPath: .env.staging, readOnly: true }
+          startupProbe:
+            httpGet: { path: /v1/health-check, port: 3000 }
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /v1/health-check, port: 3000 }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: 3000 }   # process alive (don't restart for a transient health blip)
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 4
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 768Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - { name: envfile, secret: { secretName: calls-relay-envfile } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: calls-relay
+  namespace: cometchat
+  labels:
+    app.kubernetes.io/name: calls-relay
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: calls-relay
+  ports:
+    - { name: http, port: 80, targetPort: 3000 }

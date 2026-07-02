@@ -1,0 +1,83 @@
+---
+# Mount the data disk at /var/lib/mysql BEFORE install so MySQL initializes onto it.
+- name: Check filesystem on data disk
+  command: blkid {{ mysql_data_disk_path }}
+  register: mysql_blkid
+  changed_when: false
+  failed_when: false
+
+- name: Create ext4 on data disk (if unformatted)
+  command: mkfs.ext4 -F {{ mysql_data_disk_path }}
+  when: mysql_blkid.rc != 0
+
+- name: Ensure /var/lib/mysql exists
+  file: { path: /var/lib/mysql, state: directory, mode: "0750" }
+
+- name: Mount data disk at /var/lib/mysql
+  mount:
+    path: /var/lib/mysql
+    src: "{{ mysql_data_disk_path }}"
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+
+- name: Install MySQL server + client
+  apt:
+    name: [mysql-server, mysql-client]
+    state: present
+    update_cache: true
+    lock_timeout: 300
+
+- name: Custom MySQL config
+  copy:
+    dest: /etc/mysql/mysql.conf.d/custom.cnf
+    mode: "0644"
+    content: |
+      [mysqld]
+      bind-address = 0.0.0.0
+      max_connections = 500
+      innodb_buffer_pool_size = 4G
+      innodb_log_file_size = 256M
+      innodb_flush_log_at_trx_commit = 2
+      character-set-server = utf8mb4
+      collation-server = utf8mb4_unicode_ci
+  notify: Restart MySQL
+
+- name: Override default bind-address
+  lineinfile:
+    path: /etc/mysql/mysql.conf.d/mysqld.cnf
+    regexp: '^bind-address'
+    line: 'bind-address = 0.0.0.0'
+  notify: Restart MySQL
+
+- name: Enable + start MySQL
+  systemd: { name: mysql, enabled: true, state: started }
+
+- name: Apply config now
+  meta: flush_handlers
+
+- name: Wait for MySQL socket
+  shell: |
+    for i in $(seq 1 30); do
+      mysqladmin ping -u root --socket=/var/run/mysqld/mysqld.sock >/dev/null 2>&1 && { echo ready; exit 0; }
+      sleep 2
+    done
+    exit 1
+  register: mysql_ready
+  changed_when: false
+
+- name: Set root password + allow remote root
+  shell: |
+    mysql -u root --socket=/var/run/mysqld/mysqld.sock -e "
+      ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '{{ mysql_root_password }}';
+      CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED WITH mysql_native_password BY '{{ mysql_root_password }}';
+      GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
+      FLUSH PRIVILEGES;"
+  when: mysql_ready.stdout | trim == "ready"
+  changed_when: true
+
+- name: Create application databases
+  shell: mysql -u root -p'{{ mysql_root_password }}' -e "CREATE DATABASE IF NOT EXISTS {{ item }};"
+  loop: "{{ mysql_databases }}"
+  when: mysql_ready.stdout | trim == "ready"
+  changed_when: true

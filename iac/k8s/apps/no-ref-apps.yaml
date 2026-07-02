@@ -1,0 +1,285 @@
+# Apps with NO swarm_to_k8s_GCP reference manifest — built from the diagnosis-workflow findings.
+#   analytics   : bytenode loader -> command `node -r bytenode loader.js`; reads /app/.env (dotenv); jwtrsakey.pem
+#   metrics-pro : PM2 runtime -> needs writable PM2_HOME (/home/appuser missing in image)
+#   extensions  : reads a JSON config FILE env.<NODE_ENV>.json -> mount extensions-config + NODE_ENV=staging
+# All datastore endpoints already rewritten in the mounted secrets.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: analytics, namespace: cometchat, labels: { app.kubernetes.io/name: analytics } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: analytics } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: analytics } }
+    spec:
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      containers:
+        - name: analytics
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:8ae95a99701474485d08196938bf39dd5f99aec493d2f714ddba725fa1b94433  # :analytics (latest)
+          # The image binds IPv6 loopback [::1]:8080 ONLY (unreachable from the Service/ingress over
+          # the pod IP). Run a tiny node TCP forwarder 0.0.0.0:8080 -> [::1]:8080 alongside the app.
+          # Config is a JSON FILE the bytecode requires as ../config.json -> mount at /app/config.json.
+          # distroless image (no sh): run the native bytenode entrypoint directly (binds [::1]:8080 only).
+          workingDir: /app
+          command: ["node","-r","bytenode","loader.js"]
+          env: [{ name: NODE_ENV, value: production }]
+          volumeMounts:
+            - { name: config, mountPath: /app/config.json, subPath: config.json, readOnly: true }
+            - { name: jwt, mountPath: /app/jwtrsakey.pem, subPath: jwtrsakey.pem, readOnly: true }
+          # Probe the actual app on [::1]:8080 (NOT the 0.0.0.0 forwarder, which would pass even if the app is down).
+          startupProbe:
+            exec: { command: ["node","-e","require('net').connect(8080,'::1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"] }
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            exec: { command: ["node","-e","require('net').connect(8080,'::1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"] }
+            periodSeconds: 15
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: "1", memory: 1Gi } }
+        # sidecar: the image binds [::1]:8080 only; this native-node forwarder exposes 0.0.0.0:8080 -> [::1]:8080
+        # (shared pod netns) so the Service/ingress can reach analytics over the pod IP. Same image (has node); no sh.
+        - name: forwarder
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:8ae95a99701474485d08196938bf39dd5f99aec493d2f714ddba725fa1b94433  # :analytics (has node)
+          command: ["node","-e","const net=require('net');net.createServer(c=>{const u=net.connect(8080,'::1');c.on('error',()=>u.destroy());u.on('error',()=>c.destroy());c.pipe(u);u.pipe(c)}).listen(8080,'0.0.0.0',()=>console.log('analytics fwd 0.0.0.0:8080 -> [::1]:8080'))"]
+          ports: [{ containerPort: 8080, name: http }]
+          readinessProbe: { tcpSocket: { port: 8080 }, periodSeconds: 15 }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }
+        # pod-TLS sidecar: terminate the wildcard cert on :443 so east-west calls (CoreDNS -> Service
+        # ClusterIP:443) are real HTTPS verified against *.<domain>, and :80 stays for plain HTTP.
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80, name: http }, { containerPort: 443, name: https }]
+          volumeMounts:
+            - { name: nginx-config, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+            - { name: tls, mountPath: /tls, readOnly: true }
+          readinessProbe: { httpGet: { path: /nginx-health, port: 80 }, initialDelaySeconds: 10, periodSeconds: 10 }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }
+      volumes:
+        - { name: config, secret: { secretName: analytics-config } }
+        - { name: jwt, secret: { secretName: jwt-public } }
+        - { name: nginx-config, configMap: { name: analytics-nginx-config } }
+        - { name: tls, secret: { secretName: wildcard-tls } }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: analytics-nginx-config, namespace: cometchat }
+data:
+  default.conf: |
+    server {
+      listen 80; server_name _; client_max_body_size 50M;
+      underscores_in_headers on; ignore_invalid_headers off;   # east-west auth headers (app_secret/api_key) carry underscores; nginx drops them by default -> forward verbatim
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
+    server {
+      listen 443 ssl; server_name _; client_max_body_size 50M;
+      ssl_certificate /tls/tls.crt; ssl_certificate_key /tls/tls.key;
+      underscores_in_headers on; ignore_invalid_headers off;
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: analytics, namespace: cometchat, labels: { app.kubernetes.io/name: analytics } }
+spec:
+  selector: { app.kubernetes.io/name: analytics }
+  ports: [{ name: http, port: 80, targetPort: 80 }, { name: https, port: 443, targetPort: 443 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: metrics-pro, namespace: cometchat, labels: { app.kubernetes.io/name: metrics-pro } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: metrics-pro } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: metrics-pro } }
+    spec:
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      containers:
+        - name: metrics-pro
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:3a127b3334712094c1401f7c8380b83e97ef829b358175b799cae596ed0ec12d  # :pro-metrics (latest)
+          # Latest pro-metrics dropped PM2; its native CMD is `node loader.js` (API on :3003).
+          # Run the image as-is (distroless: no shell, so no pm2 sh-override).
+          envFrom: [{ secretRef: { name: metrics-pro-env } }]   # config via real env vars
+          ports: [{ containerPort: 3003, name: http }]
+          startupProbe: { tcpSocket: { port: 3003 }, periodSeconds: 10, failureThreshold: 30 }
+          readinessProbe: { tcpSocket: { port: 3003 }, periodSeconds: 10 }
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: "1", memory: 1Gi } }
+        # pod-TLS sidecar: terminate the wildcard cert on :443 for east-west HTTPS; :80 stays plain HTTP.
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80, name: http }, { containerPort: 443, name: https }]
+          volumeMounts:
+            - { name: nginx-config, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+            - { name: tls, mountPath: /tls, readOnly: true }
+          readinessProbe: { httpGet: { path: /nginx-health, port: 80 }, initialDelaySeconds: 10, periodSeconds: 10 }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }
+      volumes:
+        - { name: nginx-config, configMap: { name: metrics-pro-nginx-config } }
+        - { name: tls, secret: { secretName: wildcard-tls } }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: metrics-pro-nginx-config, namespace: cometchat }
+data:
+  default.conf: |
+    server {
+      listen 80; server_name _; client_max_body_size 50M;
+      underscores_in_headers on; ignore_invalid_headers off;   # east-west auth headers (app_secret/api_key) carry underscores; nginx drops them by default -> forward verbatim
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:3003;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
+    server {
+      listen 443 ssl; server_name _; client_max_body_size 50M;
+      ssl_certificate /tls/tls.crt; ssl_certificate_key /tls/tls.key;
+      underscores_in_headers on; ignore_invalid_headers off;
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:3003;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: metrics-pro, namespace: cometchat, labels: { app.kubernetes.io/name: metrics-pro } }
+spec:
+  selector: { app.kubernetes.io/name: metrics-pro }
+  ports: [{ name: http, port: 80, targetPort: 80 }, { name: https, port: 443, targetPort: 443 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: extensions, namespace: cometchat, labels: { app.kubernetes.io/name: extensions } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: extensions } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: extensions } }
+    spec:
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      containers:
+        - name: extensions
+          # node22 restructure (fixes :extensions=6bf7fb44 MODULE_NOT_FOUND RetryDynamoModel.js):
+          # code at WORKDIR / (loader.js, cluster.js); reads /env.<NODE_ENV>.json; PORT 5000 from config COMMON.PORT.
+          # PINNED to the dev's fixed node22-fix build (c826c46e). The mutable :extensions `latest` tag
+          # drifted to dca93de5, which regressed link-preview to a message_edited-only gate: it re-edits
+          # every message, and its own edit re-triggers it -> infinite self-loop -> message topic grows
+          # unbounded -> globalwebhooks floods. c826c46e does link-preview natively on-send (no loop).
+          # This is the documented extensions exception to "use latest". See cometchat-extensions-handoff.
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:c826c46e40162c222a9d7103fa3ae1af9b660e6a5f5d3a997e1db1fbd4635e72  # :extensions PINNED (node22-fix)
+          # distroless image (no sh): run the native CMD directly, move the env the wrapper set into env:
+          command: ["node","-r","./loader.js","./cluster.js"]
+          workingDir: /app
+          env:
+            - { name: NODE_ENV, value: staging }
+            - { name: NODE_OPTIONS, value: --openssl-legacy-provider }
+            - { name: NODE_NO_WARNINGS, value: "1" }
+            - { name: FAT_PRIVATE_KEY_FILE, value: /app/fat-private-key.pem }
+            - { name: FAT_PUBLIC_KEY_FILE, value: /app/fat-public-key.pem }
+          ports: [{ containerPort: 5000, name: http }]
+          volumeMounts:
+            - { name: config, mountPath: /app/env.staging.json, subPath: env.staging.json, readOnly: true }
+            # LOCAL PATCH (k8s/patches/LinkPreviewController.js): link-preview consumer also generates
+            # previews on new sends (after_message), not only edits. Remove when a fixed image ships.
+            - { name: lp-patch, mountPath: /app/extensions/link-preview/src/controllers/LinkPreviewController.js, subPath: LinkPreviewController.js, readOnly: true }
+          startupProbe: { tcpSocket: { port: 5000 }, periodSeconds: 10, failureThreshold: 30 }
+          readinessProbe: { tcpSocket: { port: 5000 }, periodSeconds: 10 }
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: "1", memory: 1Gi } }
+        # pod-TLS sidecar: terminate the wildcard cert on :443 for east-west HTTPS; :80 stays plain HTTP.
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80, name: http }, { containerPort: 443, name: https }]
+          volumeMounts:
+            - { name: nginx-config, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+            - { name: tls, mountPath: /tls, readOnly: true }
+          readinessProbe: { httpGet: { path: /nginx-health, port: 80 }, initialDelaySeconds: 10, periodSeconds: 10 }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }
+      volumes:
+        - { name: config, secret: { secretName: extensions-config } }
+        - { name: lp-patch, configMap: { name: linkpreview-patch } }   # link-preview after_message patch
+        - { name: nginx-config, configMap: { name: extensions-nginx-config } }
+        - { name: tls, secret: { secretName: wildcard-tls } }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: extensions-nginx-config, namespace: cometchat }
+data:
+  default.conf: |
+    server {
+      listen 80; server_name _; client_max_body_size 50M;
+      underscores_in_headers on; ignore_invalid_headers off;   # east-west auth headers (app_secret/api_key) carry underscores; nginx drops them by default -> forward verbatim
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
+    server {
+      listen 443 ssl; server_name _; client_max_body_size 50M;
+      ssl_certificate /tls/tls.crt; ssl_certificate_key /tls/tls.key;
+      underscores_in_headers on; ignore_invalid_headers off;
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: extensions, namespace: cometchat, labels: { app.kubernetes.io/name: extensions } }
+spec:
+  selector: { app.kubernetes.io/name: extensions }
+  ports: [{ name: http, port: 80, targetPort: 80 }, { name: https, port: 443, targetPort: 443 }]

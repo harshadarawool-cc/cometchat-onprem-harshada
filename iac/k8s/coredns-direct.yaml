@@ -1,0 +1,107 @@
+# =============================================================================
+# CoreDNS DIRECT-to-Service split-horizon  —  the internal-HTTPS (per-pod TLS) variant.
+#
+# STATUS: STAGED for the post-baseline HTTPS pass. NOT wired into deploy.sh yet.
+#   The baseline `coredns-split-horizon.yaml` (template -> single internal ingress IP) stays
+#   the live/default. This file REPLACES that map with Aryan's per-FQDN `rewrite ... answer auto`
+#   scheme once the per-pod TLS sidecars (nginx-tls-sidecar.snippet.yaml) + domain-wide wildcard
+#   cert (wildcard-cert-full.yaml) are in place.
+#
+# WHY (STEP1-NETWORKING-PLAN.md §2):
+#   In the per-pod-TLS model every east-west hop terminates TLS at the DESTINATION pod's nginx
+#   sidecar :443 — no shared-ingress detour. So CoreDNS must rewrite each customer FQDN straight
+#   to the BACKING Service (<svc>.cometchat.svc.cluster.local), NOT to one ingress IP.
+#
+# THREE TRAPS THIS FILE GETS RIGHT (verified in the plan):
+#   1. `answer auto` on every WILDCARD rewrite — preserves the appId in the Host header so the
+#      app's Host-based app routing works (without it, {appId} host-routing 500s).
+#   2. `-internal` TWINS present for api/apiclient/websocket — the images build these -internal
+#      hostnames for east-west calls; a missing twin = NXDOMAIN -> 500.
+#   3. OUR real Service names + namespace `cometchat` (chatapi, websocket, moderationservice,
+#      globalwebhooks, notificationscore, service-search, visual-chat-builder, metrics-pro,
+#      analytics, extensions, document-embed, whiteboard, dashboard, mgmtapi, seaweedfs:8333,
+#      ai-agent-service, clamav) — copying Aryan's cometchat-app / seaweedfs-edge / analytics-api
+#      = NXDOMAIN.
+#
+# HTTP-BY-DESIGN targets (no TLS sidecar; the rewrite still fires but the pod stays :80):
+#   ai-agent-service (app builds an http:// URL), clamav (test.antivirus).
+#
+# Rendered by deploy.sh: __DOMAIN__ (e.g. cometchat-cluster-2.in) and __DOMAIN_RE__ (dots
+# escaped, e.g. cometchat-cluster-2\.in). Apply, then bounce rke2-coredns.
+# Verify from in-cluster:
+#   kubectl run d --image=busybox --rm -it -- nslookup <appId>.api-onprem.__DOMAIN__
+#     -> must return chatapi.cometchat.svc.cluster.local's ClusterIP (NOT a public/ingress IP).
+# =============================================================================
+---
+# RKE2/k3s import this ConfigMap's *.server file into the managed Corefile. Reconcile-safe.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+  labels: { app.kubernetes.io/part-of: cometchat-split-horizon-direct }
+data:
+  cometchat-onprem.server: |
+    __DOMAIN__:53 {
+        errors
+
+        # ---- chatapi (REST + client SDK) -----------------------------------------------------
+        # WILDCARD appId hosts + bare + -internal twin. `answer auto` keeps {appId} in the Host.
+        rewrite name regex (.*)\.api-onprem\.__DOMAIN_RE__ chatapi.cometchat.svc.cluster.local answer auto
+        rewrite name regex (.*)\.api-onprem-internal\.__DOMAIN_RE__ chatapi.cometchat.svc.cluster.local answer auto
+        rewrite name exact api-onprem.__DOMAIN__ chatapi.cometchat.svc.cluster.local
+        rewrite name exact api-onprem-internal.__DOMAIN__ chatapi.cometchat.svc.cluster.local
+        rewrite name regex (.*)\.apiclient-onprem\.__DOMAIN_RE__ chatapi.cometchat.svc.cluster.local answer auto
+        rewrite name regex (.*)\.apiclient-onprem-internal\.__DOMAIN_RE__ chatapi.cometchat.svc.cluster.local answer auto
+        rewrite name exact apiclient-onprem.__DOMAIN__ chatapi.cometchat.svc.cluster.local
+        rewrite name exact apiclient-onprem-internal.__DOMAIN__ chatapi.cometchat.svc.cluster.local
+
+        # ---- websocket (realtime) ------------------------------------------------------------
+        rewrite name regex (.*)\.websocket-onprem\.__DOMAIN_RE__ websocket.cometchat.svc.cluster.local answer auto
+        rewrite name regex (.*)\.websocket-onprem-internal\.__DOMAIN_RE__ websocket.cometchat.svc.cluster.local answer auto
+        rewrite name exact websocket-onprem.__DOMAIN__ websocket.cometchat.svc.cluster.local
+        rewrite name exact websocket-onprem-internal.__DOMAIN__ websocket.cometchat.svc.cluster.local
+        rewrite name exact ws-onprem.__DOMAIN__ websocket.cometchat.svc.cluster.local
+
+        # ---- flat / regional single-label east-west hosts ------------------------------------
+        rewrite name exact rule-onprem.__DOMAIN__ moderationservice.cometchat.svc.cluster.local
+        rewrite name exact webhooks-onprem.__DOMAIN__ globalwebhooks.cometchat.svc.cluster.local
+        rewrite name exact notifications-onprem.__DOMAIN__ notificationscore.cometchat.svc.cluster.local
+        rewrite name exact internal-search-onprem.__DOMAIN__ service-search.cometchat.svc.cluster.local
+        rewrite name exact internal-vcb-onprem.__DOMAIN__ visual-chat-builder.cometchat.svc.cluster.local
+        rewrite name exact internal-apivcb-onprem.__DOMAIN__ visual-chat-builder.cometchat.svc.cluster.local
+        rewrite name exact metrics-pro-onprem.__DOMAIN__ metrics-pro.cometchat.svc.cluster.local
+        rewrite name exact metrics-onprem.__DOMAIN__ analytics.cometchat.svc.cluster.local
+        rewrite name exact app.__DOMAIN__ dashboard.cometchat.svc.cluster.local
+        rewrite name exact apimgmt.__DOMAIN__ mgmtapi.cometchat.svc.cluster.local
+
+        # ---- extensions core + feature hosts (all -> extensions Service) ---------------------
+        rewrite name regex (.*)\.extensions-onprem\.__DOMAIN_RE__ extensions.cometchat.svc.cluster.local answer auto
+        rewrite name exact extensions-onprem.__DOMAIN__ extensions.cometchat.svc.cluster.local
+        rewrite name exact stickers-onprem.__DOMAIN__ extensions.cometchat.svc.cluster.local
+        rewrite name exact polls-onprem.__DOMAIN__ extensions.cometchat.svc.cluster.local
+        rewrite name exact link-preview-onprem.__DOMAIN__ extensions.cometchat.svc.cluster.local
+        rewrite name exact thumbnail-generator-onprem.__DOMAIN__ extensions.cometchat.svc.cluster.local
+        rewrite name exact document-onprem.__DOMAIN__ extensions.cometchat.svc.cluster.local
+        rewrite name exact whiteboard-onprem.__DOMAIN__ extensions.cometchat.svc.cluster.local
+
+        # ---- editor iframes ------------------------------------------------------------------
+        rewrite name exact document-embed-onprem.__DOMAIN__ document-embed.cometchat.svc.cluster.local
+        rewrite name exact whiteboard-embed-onprem.__DOMAIN__ whiteboard.cometchat.svc.cluster.local
+
+        # ---- data tier (Service seaweedfs:8333 in ns cometchat — NOT seaweedfs-edge) ---------
+        rewrite name regex (.*)\.media-onprem\.__DOMAIN_RE__ seaweedfs.cometchat.svc.cluster.local answer auto
+        rewrite name exact media-onprem.__DOMAIN__ seaweedfs.cometchat.svc.cluster.local
+        rewrite name exact data-onprem.__DOMAIN__ seaweedfs.cometchat.svc.cluster.local
+        rewrite name exact files-onprem.__DOMAIN__ seaweedfs.cometchat.svc.cluster.local
+
+        # ---- HTTP-only (answer auto keeps appId, but target pod stays :80 — NO TLS) ----------
+        rewrite name regex (.*)\.ai-agent-service\.__DOMAIN_RE__ ai-agent-service.cometchat.svc.cluster.local answer auto
+        rewrite name exact ai-agent-service.__DOMAIN__ ai-agent-service.cometchat.svc.cluster.local
+        rewrite name exact test.antivirus.__DOMAIN__ clamav.cometchat.svc.cluster.local
+
+        # Anything else in the zone resolves normally in-cluster (and AAAA falls through).
+        forward . 127.0.0.1:53
+        cache 30
+        reload
+    }

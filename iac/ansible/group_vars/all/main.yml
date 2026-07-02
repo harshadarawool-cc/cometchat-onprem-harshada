@@ -1,0 +1,31 @@
+---
+# Reach the private VMs through Google IAP TCP forwarding (no public IPs, no bastion needed).
+# %h = instance name, %p = 22. Requires roles/iap.tunnelResourceAccessor on the caller.
+gcp_project: onprem-499712
+gcp_zone: asia-south1-a
+
+ansible_ssh_common_args: >-
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=8
+  -o ConnectTimeout=30
+  -o ProxyCommand="gcloud compute start-iap-tunnel %h %p --listen-on-stdin --zone={{ gcp_zone }} --project={{ gcp_project }}"
+# ServerAliveInterval/CountMax = keepalive so the IAP tunnel doesn't drop during long tasks (apt install on a
+# fresh VM) -> avoids the "Data could not be sent to remote host / UNREACHABLE" flake on freshly-booted VMs.
+
+# --- datastore topology (v3 TEST: 10.23.x, 1 of each) ---
+mongo_replset: rs0
+mongo_members:
+  - { host: 10.23.10.11, priority: 2 }
+
+kafka_brokers: "10.23.10.31:9092"
+
+# Redis = 4 DEDICATED Sentinel clusters, 1 node each (TEST). Master = node-1.
+# Per-host redis_role + redis_master_ip live in the inventory; ports are 6379/26379.
+
+tidb_host: 10.23.10.51
+mysql_host: 10.23.10.41
+
+# RKE2 — v3 edge LB (deploy.sh phase_inventory also refreshes this from terraform output).
+edge_lb_ip: "34.47.139.160"

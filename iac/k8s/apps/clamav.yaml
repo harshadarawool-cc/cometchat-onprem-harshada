@@ -1,0 +1,42 @@
+# clamav — antivirus used by moderationservice. TWO containers in ONE pod:
+#   clamav-daemon : clamd listening on :3310. freshclam DISABLED (no outbound to clamav.net,
+#                   data-residency) — the image ships a bundled virus DB.
+#   antivirus     : the HTTP API (antimalware-antivirus-service) on :80; scans by talking to
+#                   clamd at localhost:3310 (CLAMD_HOST=localhost in the clamav-env secret).
+# moderationservice reaches it at http://test.antivirus.cometchat-cluster-2.in
+#   (CoreDNS split-horizon -> internal ingress -> Service clamav:80). Internal-only (no public DNS).
+# Config: envFrom secret `clamav-env` (built from secrets-rendered/clamav.env). API_KEY must match
+#   moderationservice CLAMAV_API_KEY (both = your-api-key-here).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: clamav, namespace: cometchat, labels: { app.kubernetes.io/name: clamav } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: clamav } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: clamav } }
+    spec:
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      containers:
+        - name: clamav-daemon
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:16a41224f9918fa731111b504e4a58b5018710f0c6414504142f2cc366ab68bb  # :clamav-daemon (latest)
+          ports: [{ containerPort: 3310, name: clamd }]
+          # clamd takes time to load the DB into memory on first start.
+          startupProbe:   { tcpSocket: { port: 3310 }, periodSeconds: 10, failureThreshold: 60 }
+          readinessProbe: { tcpSocket: { port: 3310 }, periodSeconds: 10, failureThreshold: 6 }
+          resources: { requests: { cpu: 200m, memory: 1Gi }, limits: { cpu: "1", memory: 2Gi } }
+        - name: antivirus
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images:antimalware-antivirus-service
+          envFrom: [{ secretRef: { name: clamav-env } }]
+          ports: [{ containerPort: 80, name: http }]
+          readinessProbe: { tcpSocket: { port: 80 }, initialDelaySeconds: 20, periodSeconds: 10, failureThreshold: 30 }
+          # buffers downloads up to MAX_DOWNLOAD_SIZE (100MB) for scanning -> needs headroom
+          resources: { requests: { cpu: 100m, memory: 512Mi }, limits: { cpu: 500m, memory: 2Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: clamav, namespace: cometchat, labels: { app.kubernetes.io/name: clamav } }
+spec:
+  selector: { app.kubernetes.io/name: clamav }
+  ports: [{ name: http, port: 80, targetPort: 80 }]

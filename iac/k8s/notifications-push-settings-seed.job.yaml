@@ -1,0 +1,45 @@
+# Seed the global default push-settings (cometchat_default) with the FULL template set.
+# notificationscore auto-creates cometchat_default but an older build omits 4 template groups
+# (poll / reminder / userMention / groupMention) -> those notification types can't be formatted.
+# This idempotent $set fills them in (emoji-free text templates; existing media emojis untouched).
+# NOTE: this completes notification FORMATTING; it does NOT fix the separate "Invalid DTO" event
+# rejection (that's a notificationscore image bug — see docs/PROBLEMS-AND-FIXES.md / memory).
+# Run AFTER notificationscore is up (it creates the base doc). Mongo creds read from the secret.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: notifications-push-settings-seed
+  namespace: cometchat
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: seed
+          image: public.ecr.aws/docker/library/mongo:7
+          command: ["sh","-c"]
+          args:
+            - |
+              set -eu
+              # wait for notificationscore to have created the base doc (up to ~2 min)
+              i=0
+              while [ $i -lt 24 ]; do
+                n=$(mongosh "$MONGO_URI" --quiet --eval 'db.getSiblingDB("notifications-core-db")["notifications-core-push-settings"].countDocuments({_id:"cometchat_default"})' 2>/dev/null || echo 0)
+                [ "$n" = "1" ] && break; echo "waiting for cometchat_default… ($i)"; i=$((i+1)); sleep 5
+              done
+              mongosh "$MONGO_URI" --quiet --eval '
+                const TG="{{message.data.entities.sender.entity.name}} @ {{message.data.entities.receiver.entity.name}}";
+                const T1="{{message.data.entities.sender.entity.name}}"; const TXT="{{message.data.text}}";
+                const set={
+                  "templates.pollMessageTemplates":{default:{titleOneOnOne:T1,titleGroup:TG,body:"Poll: "+TXT,body_fallback:"New message"},privacy:{titleOneOnOne:T1,titleGroup:TG,body:"New message",body_fallback:"New message"}},
+                  "templates.reminderMessageTemplates":{default:{titleOneOnOne:T1,titleGroup:TG,body:TXT,body_fallback:"New message"},privacy:{titleOneOnOne:T1,titleGroup:TG,body:"New message",body_fallback:"New message"}},
+                  "templates.userMentionTemplates":{default:{titleOneOnOne:T1,titleGroup:TG,bodyOneOnOne:TXT,bodyGroup:TXT,body_fallback:"New message"},privacy:{titleOneOnOne:T1,titleGroup:TG,bodyOneOnOne:"New message",bodyGroup:"New message",body_fallback:"New message"}},
+                  "templates.groupMentionTemplates":{default:{titleGroup:TG,body:TXT,body_fallback:"New message"},privacy:{titleGroup:TG,body:"New message",body_fallback:"New message"}}
+                };
+                const r=db.getSiblingDB("notifications-core-db")["notifications-core-push-settings"].updateOne({_id:"cometchat_default"},{$set:set});
+                print("push-settings seed: matched="+r.matchedCount+" modified="+r.modifiedCount);
+              '
+          env:
+            - { name: MONGO_URI, valueFrom: { secretKeyRef: { name: notificationscore-env, key: MONGO_URI } } }

@@ -1,0 +1,72 @@
+# cometchatFS admin console (S3 web browser) — SeaweedFS 4.37 stack.
+# Adapted from akamai-projects-seaweedfs@5232cca cometchatfs/k8s/{deployment,service}.yaml:
+#   - namespace pinned to `cometchat`
+#   - TLS + routing done by OUR Ingress (50-ingress.yaml), NOT the package's LB edge
+#   - env from secret `cometchatfs-env` (built by deploy.sh phase_secrets):
+#       S3_ENDPOINT        = http://seaweedfs-filer.cometchat.svc:8333   (server-side, in-cluster)
+#       S3_PUBLIC_ENDPOINT = https://media-onprem.cometchat-cluster-2.in (presigned URLs, browser)
+#       S3_ACCESS_KEY/S3_SECRET_KEY = the CONSOLE (Admin) seaweedfs-s3-config identity
+#       JWT_SECRET, APP_USERS (scrypt-hashed admin password)
+# Image = obfuscated console in the consolidated `cometchat-enterprise` ECR repo (5232cca migration),
+# PINNED by digest (do NOT use :latest).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cometchatfs
+  namespace: cometchat
+  labels: { app: cometchatfs }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: cometchatfs }
+  template:
+    metadata:
+      labels: { app: cometchatfs }
+    spec:
+      imagePullSecrets:
+        - name: ecr-pull-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      containers:
+        - name: cometchatfs
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/cometchat-enterprise:cometchatfs-obf@sha256:122cbf6d95244ad043896f283b9b17fe526b25534580601cb72dafcc79ee495b
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3300
+          envFrom:
+            - secretRef:
+                name: cometchatfs-env
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          readinessProbe:
+            httpGet: { path: /login, port: 3300 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /login, port: 3300 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cometchatfs
+  namespace: cometchat
+  labels: { app: cometchatfs }
+spec:
+  type: ClusterIP
+  selector:
+    app: cometchatfs
+  ports:
+    - name: http
+      port: 3300
+      targetPort: 3300
+      protocol: TCP

@@ -1,0 +1,76 @@
+# One-shot: de-stage the extension registry URLs so the dashboard/SDK reach OUR on-prem extensions.
+# The mgmt image's onprem_setup migration can (re)bake a foreign domain into the extension registry:
+#   - cometchat-staging.com   (the stock staging default)
+#   - cometchat-cluster-4.in  (leaked in from a colleague's seed dump — the "stickers load from Aryan"
+#                              bug: extensions-<region>.cometchat-cluster-4.in served his cluster's assets)
+# This idempotently rewrites BOTH -> cometchat-cluster-2.in in:
+#   LAYER 2 (template — fixes ALL FUTURE apps): mgmt MySQL <mgmtDB>.microservices
+#   LAYER 1 (per-app — fixes EXISTING apps):     every TiDB cod_<appId>.{interfaces,microservices}
+# Domain-only REPLACE; host shape (extensions-<region>.<domain>) + /feature/v1/... paths preserved.
+# Hosts + creds are read from the mounted service secrets (mgmtapi-env / chatapi-env) — NEVER hardcoded
+# IPs, NEVER on a cmdline (password via MYSQL_PWD env). On a fresh cluster LAYER 1 finds 0 cod_ DBs and
+# is a no-op; LAYER 2 corrects the template so the first app created is already on our domain.
+# Idempotent (LIKE-guarded). Delete + re-apply to re-run.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ext-url-destage
+  namespace: cometchat
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: destage
+          image: public.ecr.aws/docker/library/mysql:8.0
+          command: ["sh","-c"]
+          args:
+            - |
+              set -eu
+              # --- connection details from the mounted service secrets (no hardcoded IPs) ---
+              MGMT_HOST=$(grep -E '^DB_HOST='     /mgmt/.env | head -1 | cut -d= -f2- | tr -d '\r')
+              MGMT_PORT=$(grep -E '^DB_PORT='     /mgmt/.env | head -1 | cut -d= -f2- | tr -d '\r'); MGMT_PORT=${MGMT_PORT:-3306}
+              MGMT_USER=$(grep -E '^DB_USERNAME=' /mgmt/.env | head -1 | cut -d= -f2- | tr -d '\r')
+              MGMT_DB=$(grep   -E '^DB_DATABASE=' /mgmt/.env | head -1 | cut -d= -f2- | tr -d '\r'); MGMT_DB=${MGMT_DB:-pulsecustomerdb}
+              CHAT_HOST=$(grep -E '^DB_HOST='     /chat/.env | head -1 | cut -d= -f2- | tr -d '\r')
+              CHAT_USER=$(grep -E '^DB_USERNAME=' /chat/.env | head -1 | cut -d= -f2- | tr -d '\r')
+              TIDB_PORT=4000
+              OLD1='cometchat-staging.com'; OLD2='cometchat-cluster-4.in'; NEW='cometchat-cluster-2.in'
+              # --- LAYER 2: the registry TEMPLATE on mgmt MySQL (fixes all future apps) — mgmt creds ---
+              export MYSQL_PWD=$(grep -E '^DB_PASSWORD=' /mgmt/.env | head -1 | cut -d= -f2- | tr -d '\r')
+              # WAIT for mgmtapi to create the schema: on a fresh cluster this job can run BEFORE mgmtapi's
+              # `php artisan migrate` (on boot) has created + populated `microservices`, so the table won't
+              # exist yet. Poll up to ~5 min; if it never appears, exit 0 (non-fatal — re-run apps later).
+              ready=""
+              for i in $(seq 1 30); do
+                mysql -h "$MGMT_HOST" -P "$MGMT_PORT" -u "$MGMT_USER" "$MGMT_DB" -e "SELECT 1 FROM microservices LIMIT 1;" >/dev/null 2>&1 && { ready=1; break; }
+                echo "  waiting for $MGMT_DB.microservices (mgmtapi migrate)… ($i/30)"; sleep 10
+              done
+              [ -n "$ready" ] || { echo "microservices not present after 5m — mgmtapi not migrated yet; re-run 'deploy.sh apps' once mgmtapi is Ready"; exit 0; }
+              echo "=== LAYER 2: de-stage template on $MGMT_HOST:$MGMT_PORT/$MGMT_DB.microservices ==="
+              mysql -h "$MGMT_HOST" -P "$MGMT_PORT" -u "$MGMT_USER" "$MGMT_DB" -e "
+                UPDATE microservices SET webhookURL=REPLACE(REPLACE(webhookURL,'$OLD1','$NEW'),'$OLD2','$NEW') WHERE webhookURL LIKE '%$OLD1%' OR webhookURL LIKE '%$OLD2%';
+                UPDATE microservices SET adminURL =REPLACE(REPLACE(adminURL, '$OLD1','$NEW'),'$OLD2','$NEW') WHERE adminURL  LIKE '%$OLD1%' OR adminURL  LIKE '%$OLD2%';"
+              mysql -h "$MGMT_HOST" -P "$MGMT_PORT" -u "$MGMT_USER" "$MGMT_DB" -e "SELECT id,adminURL FROM microservices;" 2>/dev/null || true
+              # --- LAYER 1: every existing per-app cod_ DB on TiDB (fixes current apps) — chat creds ---
+              export MYSQL_PWD=$(grep -E '^DB_PASSWORD=' /chat/.env | head -1 | cut -d= -f2- | tr -d '\r')
+              CODS=$(mysql -h "$CHAT_HOST" -P "$TIDB_PORT" -u "$CHAT_USER" -N -e "SHOW DATABASES LIKE 'cod\\_%'" 2>/dev/null || true)
+              if [ -z "$CODS" ]; then echo "=== LAYER 1: no cod_ app DBs yet (fresh cluster) — LAYER 2 covers the first app ==="; fi
+              for d in $CODS; do
+                echo "=== LAYER 1: de-stage per-app URLs in $d ==="
+                mysql -h "$CHAT_HOST" -P "$TIDB_PORT" -u "$CHAT_USER" "$d" -e "
+                  UPDATE interfaces    SET webhookURL=REPLACE(REPLACE(webhookURL,'$OLD1','$NEW'),'$OLD2','$NEW') WHERE webhookURL LIKE '%$OLD1%' OR webhookURL LIKE '%$OLD2%';
+                  UPDATE microservices SET webhookURL=REPLACE(REPLACE(webhookURL,'$OLD1','$NEW'),'$OLD2','$NEW') WHERE webhookURL LIKE '%$OLD1%' OR webhookURL LIKE '%$OLD2%';
+                  UPDATE microservices SET adminURL =REPLACE(REPLACE(adminURL, '$OLD1','$NEW'),'$OLD2','$NEW') WHERE adminURL  LIKE '%$OLD1%' OR adminURL  LIKE '%$OLD2%';" 2>/dev/null || echo "  (skip $d: no write access / table absent)"
+              done
+              echo "OK: extension URLs de-staged ($OLD1 + $OLD2 -> $NEW) — template + $(printf '%s' "$CODS" | wc -w | tr -d ' ') app DB(s)"
+          volumeMounts:
+            - { name: mgmt, mountPath: /mgmt, readOnly: true }
+            - { name: chat, mountPath: /chat, readOnly: true }
+      volumes:
+        - name: mgmt
+          secret: { secretName: mgmtapi-env }
+        - name: chat
+          secret: { secretName: chatapi-env }

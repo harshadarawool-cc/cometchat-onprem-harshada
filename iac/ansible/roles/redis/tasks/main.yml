@@ -1,0 +1,53 @@
+---
+# Single Redis (6379) + single Sentinel (26379) per VM, using the stock services.
+# Each VM belongs to exactly one dedicated cluster (set by inventory group).
+# bind 0.0.0.0 (NOT 127.0.0.1) so sentinel records the real master IP, not loopback.
+- name: Install Redis + Sentinel + tools
+  apt:
+    name: [redis-server, redis-sentinel, redis-tools]
+    state: present
+    update_cache: true
+    lock_timeout: 300
+
+- name: Deploy redis.conf
+  template:
+    src: redis.conf.j2
+    dest: /etc/redis/redis.conf
+    owner: redis
+    group: redis
+    mode: "0640"
+  notify: restart redis-server
+
+- name: Apply redis.conf now
+  meta: flush_handlers
+
+- name: Enable + start redis-server
+  systemd: { name: redis-server, enabled: true, state: started }
+
+# --- Sentinel: it self-rewrites its config, so wipe stale state if the recorded master IP is wrong ---
+- name: Check sentinel's current master (if running)
+  shell: redis-cli -p 26379 sentinel get-master-addr-by-name {{ redis_master_name }} 2>/dev/null | head -1
+  register: sentinel_cur_master
+  changed_when: false
+  failed_when: false
+
+- name: Reset stale sentinel state when master IP is wrong/unknown
+  when: (sentinel_cur_master.stdout | default('') | trim) != redis_master_ip
+  block:
+    - name: Stop redis-sentinel
+      systemd: { name: redis-sentinel, state: stopped }
+      failed_when: false
+    - name: Remove rewritten sentinel.conf
+      file: { path: /etc/redis/sentinel.conf, state: absent }
+
+- name: Deploy sentinel.conf
+  template:
+    src: sentinel.conf.j2
+    dest: /etc/redis/sentinel.conf
+    owner: redis
+    group: redis
+    mode: "0640"
+  notify: restart redis-sentinel
+
+- name: Enable + start redis-sentinel
+  systemd: { name: redis-sentinel, enabled: true, state: started }

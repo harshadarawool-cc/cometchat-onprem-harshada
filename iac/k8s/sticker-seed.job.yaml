@@ -1,0 +1,50 @@
+# Seed the 202 default sticker PNGs (14 sets) into the SeaweedFS `stickers` bucket so the chat
+# sticker picker renders them. The PNGs ship INSIDE the extensions image at
+# /app/extensions/stickers/resources/stickers/<set>/<file>.png — an initContainer copies them out,
+# the main container uploads to s3://stickers/<set>/<file>.png (path-style; served at
+# https://data-onprem.cometchat-cluster-2.in/stickers/<set>/<file>.png via the anonymous-read grant).
+# MUST disable aws-cli's default CRC32 (aws-chunked) or SeaweedFS 3.80 stores corrupt PNGs.
+# Idempotent (aws s3 sync). S3 creds read from the seaweedfs-s3-creds secret — never on a cmdline.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sticker-seed
+  namespace: cometchat
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      initContainers:
+        - name: extract
+          # same digest as the extensions deployment (k8s/apps/no-ref-apps.yaml) — carries the PNGs
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:8ae95a99701474485d08196938bf39dd5f99aec493d2f714ddba725fa1b94433
+          command: ["sh","-c"]
+          args:
+            - |
+              set -eu
+              cp -r /app/extensions/stickers/resources/stickers/. /shared/   # -r not -a: emptyDir can't preserve times as non-root
+              echo "extracted $(find /shared -name '*.png' | wc -l) PNGs across $(ls /shared | wc -l) sets"
+          volumeMounts: [{ name: shared, mountPath: /shared }]
+      containers:
+        - name: upload
+          image: public.ecr.aws/aws-cli/aws-cli:latest
+          env:
+            - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: seaweedfs-s3-creds, key: access-key } } }
+            - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: seaweedfs-s3-creds, key: secret-key } } }
+            - { name: AWS_DEFAULT_REGION, value: us-east-1 }
+            - { name: AWS_REQUEST_CHECKSUM_CALCULATION,  value: when_required }   # avoid aws-chunked corruption on 3.80
+            - { name: AWS_RESPONSE_CHECKSUM_VALIDATION,  value: when_required }
+          command: ["sh","-c"]
+          args:
+            - |
+              set -eu
+              aws configure set default.s3.addressing_style path
+              aws --endpoint-url http://seaweedfs.cometchat:8333 s3 sync /shared s3://stickers/ \
+                  --content-type image/png --no-progress
+              echo "stickers bucket now has $(aws --endpoint-url http://seaweedfs.cometchat:8333 s3 ls s3://stickers/ --recursive | wc -l) objects"
+          volumeMounts: [{ name: shared, mountPath: /shared }]
+      volumes:
+        - { name: shared, emptyDir: {} }

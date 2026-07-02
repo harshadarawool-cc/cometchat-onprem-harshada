@@ -1,0 +1,122 @@
+# mgmtapi (Laravel, PHP-FPM 8.2 :9000) — CURRENT ECR image :mgmt-api + new license scheme.
+#   Mount ONLY: .env + JWT keypair (public.pem/private.pem) + license.txt in /var/www root.
+#   NO license_public.pem (the image's onprem:apply-license / license:verify self-verifies).
+#   initContainer copies the image's /var/www into a writable emptyDir, overlays the config files,
+#   then the main container runs the image's DEFAULT CMD (migrate -> apply-license -> php-fpm).
+#   nginx sidecar fronts php-fpm :9000 on :80 (FastCGI).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: mgmtapi-nginx-config, namespace: cometchat }
+data:
+  default.conf: |
+    server {
+      listen 80; server_name _; client_max_body_size 50M;
+      underscores_in_headers on;       # forward east-west auth headers with underscores -> fastcgi params (chat-api-HANDOFF)
+      ignore_invalid_headers off;
+      root /var/www/public; index index.php;
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / { try_files $uri $uri/ /index.php?$query_string; }
+      location ~ \.php$ {
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+        fastcgi_read_timeout 300;
+      }
+    }
+    # pod-TLS (colleague parity): terminate the wildcard cert on :443 so east-west calls (CoreDNS ->
+    # Service ClusterIP:443) are real HTTPS verified against *.<domain>, not just ingress-terminated.
+    server {
+      listen 443 ssl; server_name _; client_max_body_size 50M;
+      ssl_certificate /tls/tls.crt; ssl_certificate_key /tls/tls.key;
+      underscores_in_headers on;       # forward east-west auth headers with underscores -> fastcgi params (chat-api-HANDOFF)
+      ignore_invalid_headers off;
+      root /var/www/public; index index.php;
+      location = /nginx-health { access_log off; add_header Content-Type application/json; return 200 '{"status":"ok"}'; }
+      location / { try_files $uri $uri/ /index.php?$query_string; }
+      location ~ \.php$ {
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+        fastcgi_read_timeout 300;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: mgmtapi, namespace: cometchat, labels: { app.kubernetes.io/name: mgmtapi } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: mgmtapi } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: mgmtapi } }
+    spec:
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      initContainers:
+        - name: stage
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:a25e8dfa7f1a4ddcbc68c9106e3467b5802d10dcedf7aa6c5bd6b2524d4a3d50  # :mgmt-ioncube-test (user-pinned 2026-07-01 18:02)
+          command: ["sh","-c"]
+          args:
+            - |
+              cp -a /var/www/. /www/
+              cp /s/env/.env          /www/.env
+              cp /s/jwt/public.pem    /www/public.pem
+              cp /s/jwt/private.pem   /www/private.pem
+              cp /s/license/license.txt /www/license.txt
+              echo "staged .env + JWT keypair + license.txt into /var/www (no license_public.pem)"
+          volumeMounts:
+            - { name: www, mountPath: /www }
+            - { name: env-secret, mountPath: /s/env, readOnly: true }
+            - { name: jwt-secret, mountPath: /s/jwt, readOnly: true }
+            - { name: license-secret, mountPath: /s/license, readOnly: true }
+      containers:
+        - name: mgmtapi
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:a25e8dfa7f1a4ddcbc68c9106e3467b5802d10dcedf7aa6c5bd6b2524d4a3d50  # :mgmt-ioncube-test (user-pinned 2026-07-01 18:02)
+          # New mgmt image (689ac042, pushed 2026-06-22): handles the region secret itself — its own
+          # migration writes regions.hash from ONPREM_REGION_SECRET, so the previous regions.hash
+          # workaround is REMOVED. Startup: migrate (idempotent, runs that region migration) then php-fpm.
+          # license.txt in /var/www root is self-verified by the code (new license scheme).
+          command: ["sh","-c"]
+          args:
+            - |
+              chmod 777 /var/www/public.pem /var/www/private.pem 2>/dev/null || true
+              echo "=== migrate (idempotent) ==="; php artisan migrate --force 2>&1 | tail -8 || echo "migrate skipped"
+              echo "=== license (self-verified from /var/www/license.txt) ==="; ls -l /var/www/license.txt
+              echo "=== starting php-fpm 8.2 :9000 ==="; exec php-fpm8.2 -F -R --nodaemonize
+          env:
+            # trust the in-cluster wildcard cert so HTTPS calls to api-us/etc. (chatapi) validate
+            - { name: CURL_CA_BUNDLE, value: /cc-ca/ca.crt }
+            - { name: SSL_CERT_FILE, value: /cc-ca/ca.crt }
+          ports: [{ containerPort: 9000, name: fpm }]
+          volumeMounts:
+            - { name: www, mountPath: /var/www }
+            - { name: cc-ca, mountPath: /cc-ca, readOnly: true }
+          startupProbe: { tcpSocket: { port: 9000 }, periodSeconds: 10, failureThreshold: 60 }  # migrations+license take time
+          readinessProbe: { tcpSocket: { port: 9000 }, periodSeconds: 10 }
+          resources: { requests: { cpu: 250m, memory: 512Mi }, limits: { cpu: "2", memory: 2Gi } }
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80, name: http }, { containerPort: 443, name: https }]
+          volumeMounts:
+            - { name: www, mountPath: /var/www, readOnly: true }
+            - { name: nginx-config, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+            - { name: tls, mountPath: /tls, readOnly: true }
+          readinessProbe: { httpGet: { path: /nginx-health, port: 80 }, initialDelaySeconds: 10, periodSeconds: 10 }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 500m, memory: 256Mi } }
+      volumes:
+        - { name: www, emptyDir: {} }
+        - { name: tls, secret: { secretName: wildcard-tls } }
+        - { name: cc-ca, secret: { secretName: wildcard-tls, items: [{ key: tls.crt, path: ca.crt }] } }
+        - { name: env-secret, secret: { secretName: mgmtapi-env } }
+        - { name: jwt-secret, secret: { secretName: jwt-keys } }
+        - { name: license-secret, secret: { secretName: cc-license } }
+        - { name: nginx-config, configMap: { name: mgmtapi-nginx-config } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: mgmtapi, namespace: cometchat, labels: { app.kubernetes.io/name: mgmtapi } }
+spec:
+  selector: { app.kubernetes.io/name: mgmtapi }
+  ports: [{ name: http, port: 80, targetPort: 80 }, { name: https, port: 443, targetPort: 443 }, { name: fpm, port: 9000, targetPort: 9000 }]

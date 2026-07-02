@@ -1,0 +1,158 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": "10",
+      "number_of_replicas": "1"
+    },
+    "analysis": {
+      "filter": {
+        "edge_ngram_filter": {
+          "type": "edge_ngram",
+          "min_gram": "2",
+          "max_gram": "10"
+        }
+      },
+      "analyzer": {
+        "partial_search_analyzer": {
+          "type": "custom",
+          "tokenizer": "letter",
+          "filter": ["lowercase", "stemmer"]
+        },
+        "autocomplete_index_analyzer": {
+          "type": "custom",
+          "tokenizer": "letter",
+          "filter": ["lowercase", "edge_ngram_filter"]
+        },
+        "autocomplete_search_analyzer": {
+          "type": "custom",
+          "tokenizer": "letter",
+          "filter": ["lowercase"]
+        },
+        "case_insensitive_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "app_id": {
+        "type": "keyword"
+      },
+      "category": {
+        "type": "keyword"
+      },
+      "conversation_id": {
+        "type": "keyword"
+      },
+      "deletedAt": {
+        "type": "date",
+        "format": "epoch_second"
+      },
+      "editedAt": {
+        "type": "date",
+        "format": "epoch_second"
+      },
+      "file_name": {
+        "type": "text",
+        "analyzer": "partial_search_analyzer",
+        "fields": {
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_index_analyzer",
+            "search_analyzer": "autocomplete_search_analyzer"
+          }
+        }
+      },
+      "has_attachments": {
+        "type": "boolean"
+      },
+      "has_links": {
+        "type": "boolean"
+      },
+      "has_mentions": {
+        "type": "boolean"
+      },
+      "has_reactions": {
+        "type": "boolean"
+      },
+      "id": {
+        "type": "integer"
+      },
+      "mentioned_names": {
+        "type": "text",
+        "analyzer": "case_insensitive_analyzer",
+        "fields": {
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_index_analyzer",
+            "search_analyzer": "autocomplete_search_analyzer"
+          }
+        }
+      },
+      "mentions": {
+        "type": "keyword"
+      },
+      "message_tags": {
+        "type": "text",
+        "analyzer": "case_insensitive_analyzer",
+        "fields": {
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_index_analyzer",
+            "search_analyzer": "autocomplete_search_analyzer"
+          }
+        }
+      },
+      "message_text": {
+        "type": "text",
+        "analyzer": "partial_search_analyzer",
+        "fields": {
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_index_analyzer",
+            "search_analyzer": "autocomplete_search_analyzer"
+          }
+        }
+      },
+      "mime_type": {
+        "type": "text",
+        "analyzer": "case_insensitive_analyzer"
+      },
+      "parent_id": {
+        "type": "integer"
+      },
+      "receiver_id": {
+        "type": "text",
+        "analyzer": "case_insensitive_analyzer"
+      },
+      "receiver_type": {
+        "type": "keyword"
+      },
+      "sender_id": {
+        "type": "text",
+        "analyzer": "case_insensitive_analyzer"
+      },
+      "sender_only": {
+        "type": "integer"
+      },
+      "sentAt": {
+        "type": "date",
+        "format": "epoch_second"
+      },
+      "sentAtFPid": {
+        "type": "keyword"
+      },
+      "type": {
+        "type": "keyword"
+      },
+      "updatedAt": {
+        "type": "date",
+        "format": "epoch_second"
+      }
+    }
+  }
+}
+
