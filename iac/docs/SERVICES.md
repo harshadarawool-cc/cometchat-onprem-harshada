@@ -46,7 +46,6 @@
 |---|---|---|---|
 | OpenSearch (+ ES8 proxy) | 9200 | service-search backend | `k8s/support-services.yaml`, `k8s/opensearch-es8proxy.yaml` |
 | Ollama | 11434 | moderation vision / ai-agent LLM | `k8s/support-services.yaml` |
-| Qdrant | 6333 | ai-agent vector store | `k8s/support-services.yaml` |
 | clamav (+ antivirus API) | 3310 / 80 | moderation AV | `k8s/apps/clamav.yaml` (HTTP) |
 | mailpit | 1025 / 8025 | dev SMTP catcher | `k8s/support-services.yaml` |
 | cometchatfs | 3300 | S3 admin console (internal; port-forward) | `k8s/seaweedfs/40-cometchatfs.yaml` |

@@ -21,7 +21,7 @@ to the in-cluster Service. `HTTP` marks the two plaintext (no-sidecar) targets.
 
   mgmtapi (apimgmt) ──▶ chatapi (api-onprem)        provision apps / server-side admin
   dashboard (app)   ──▶ mgmtapi (apimgmt)           admin UI → mgmt API (browser-side)
-  ai-agent-service  ──▶ chatapi (api-onprem-internal, HTTP), Ollama, Qdrant, OpenAI(egress)
+  ai-agent-service  ──▶ chatapi (api-onprem-internal, HTTP), Ollama, OpenAI(egress)
   moderationservice ──▶ clamav (test.antivirus, HTTP), Ollama (vision), Kafka
   extensions        ──▶ chatapi, seaweedfs-edge (assets), MySQL(etherpad) for document/whiteboard create
   metrics-pro       ──▶ Kafka (consume), MySQL(metrics), Redis(prometrics)     (metrics-pro-onprem, internal)
@@ -30,6 +30,12 @@ to the in-cluster Service. `HTTP` marks the two plaintext (no-sidecar) targets.
   notifications-delay-worker ─▶ Redis(bullmq), Kafka                           (worker, no Service)
   sql-consumer      ──▶ TiDB, Kafka                                            (worker)
 ```
+
+> **Verified against the real config.** Every row below is the actual host in the app's `.env`/secret
+> (`secrets/apps/<app>/.env`), e.g. chatapi's `CHAT_HOST=websocket-onprem…`, `RULES_BASE_URL=https://rule-onprem…`,
+> `SEARCH_MESSAGES_BASE_URL=https://internal-search-onprem…`, `WEBHOOKS_BASE_URL=https://webhooks-onprem…`,
+> `EXTENSION_BASE_URL=https://notifications-onprem…`, `AI_AGENT_BASE_URL=http://{{appId}}.ai-agent-service…`,
+> `SECURED_AWS_ENDPOINT=https://media-onprem…` — not inferred.
 
 ### Caller → callee table (the load-bearing hops)
 
@@ -43,7 +49,12 @@ to the in-cluster Service. `HTTP` marks the two plaintext (no-sidecar) targets.
 | chatapi | globalwebhooks | `webhooks-onprem` | outbound event webhooks |
 | chatapi | service-search | `internal-search-onprem` | index/query messages |
 | chatapi | seaweedfs-edge | `media-onprem` (S3) | media upload (server-side PUT) + presign |
-| mgmtapi | chatapi | `api-onprem` | app provisioning / admin ops |
+| mgmtapi | chatapi | `api-onprem` (`ADMIN_API_HOST`) | app provisioning / admin ops |
+| mgmtapi | moderationservice | `rule-onprem` (`RULES_BASE_URL`) | rule config |
+| mgmtapi | visual-chat-builder | `internal-vcb-onprem` (`VCB_BASE_URL`) | VCB admin |
+| mgmtapi | metrics-pro | `metrics-pro-<region>` (`METRICS_BASE_URL`) | metrics admin |
+| mgmtapi | extensions | `extensions-<region>` (`ONPREM_EXTENSIONS_BASE_URL`) | extension config |
+| mgmtapi | mailpit | `mailpit.cometchat.svc` (`MAIL_HOST`) | outbound mail (dev catcher) |
 | dashboard | mgmtapi | `apimgmt` | admin UI backend (browser-side) |
 | ai-agent-service | chatapi | `<appId>.api-onprem-internal` (**HTTP**) | bot user creation (needs the `-internal` twin) |
 | moderationservice | clamav | `test.antivirus` (**HTTP**) | AV scan |
@@ -72,8 +83,10 @@ Canonical endpoints (rebuild via `ansible/group_vars/all/main.yml` + `secrets-*`
 | **SeaweedFS S3** (in-cluster) | `seaweedfs.cometchat:8333` (internal HTTP driver) · `media-onprem` (TLS edge) | 8333 / 443 | chatapi, extensions, visual-chat-builder |
 | **OpenSearch** (in-cluster) | `opensearch.cometchat.svc` (via ES8 proxy) | 9200 | service-search |
 | **Ollama** (in-cluster) | `ollama.cometchat.svc` | 11434 | moderationservice, ai-agent |
-| **Qdrant** (in-cluster) | `qdrant.cometchat.svc` | 6333 | ai-agent-service |
 | **Mailpit** (in-cluster) | `mailpit.cometchat.svc` | 1025/8025 | mgmtapi (dev SMTP catcher) |
+
+> No in-cluster vector DB (Qdrant) is deployed in this repo — ai-agent uses Ollama in-cluster + any
+> configured external LLM (egress). Add one only if a future ai-agent build requires it.
 
 **4 independent Redis Sentinel clusters** (not one) so the `mymaster` name never collides and each workload
 is isolated; `bullmq` is offset to `.61` to never overlap the `.21–.29` block. See

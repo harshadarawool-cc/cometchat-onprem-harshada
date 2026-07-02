@@ -69,7 +69,7 @@ at the edge. This is the colleague's proven model (see `K8S-NETWORKING-GUIDE.md`
 | **Apps** (16) | chatapi, mgmtapi, websocket, analytics, metrics-pro, service-search, moderationservice, ai-agent-service, visual-chat-builder, extensions, globalwebhooks, dashboard, receipt-updater, notificationscore, whiteboard, document-embed | `k8s/`, `k8s/apps/`, `scripts/deploy-node-apps.py` |
 | **Object store** | SeaweedFS 4.37 (3+3+filer/S3) + cometchatFS console | `k8s/seaweedfs/`, `vendor/akamai-seaweedfs/` |
 | **Datastores** | Mongo rs0 ×3, Redis ×4 Sentinel clusters, Kafka ×3 (KRaft), TiDB, MySQL 8 | `terraform/datastores.tf`, `ansible/roles/*` |
-| **Search / AI** | OpenSearch (+ES8 proxy), Ollama, Qdrant | `k8s/support-services.yaml` |
+| **Search / AI** | OpenSearch (+ES8 proxy), Ollama | `k8s/support-services.yaml` |
 
 ## Request lifecycle (north-south, e.g. `api-onprem`)
 

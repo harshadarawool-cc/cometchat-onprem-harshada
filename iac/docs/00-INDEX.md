@@ -11,6 +11,7 @@ carried-over deep-dives (still valid where noted).
 - [HAPROXY-EDGE.md](HAPROXY-EDGE.md) — HAProxy config, SNI→NodePort map, stats, HA.
 - [INTERNAL-CONNECTIONS.md](INTERNAL-CONNECTIONS.md) — **how the services connect internally** (east-west call graph + datastore matrix).
 - [SERVICES.md](SERVICES.md) — the 16 apps: ports, health paths, hosts, NodePorts, manifests.
+- [IMAGES.md](IMAGES.md) — every container image, pinned by digest, and where it's referenced.
 - [SEAWEEDFS.md](SEAWEEDFS.md) — the object store (4.37, encrypted, SigV4 validation + 3.80 fallback).
 - [ENCRYPTION-AT-REST.md](ENCRYPTION-AT-REST.md) — disk (CMEK) + etcd/secrets + SeaweedFS SSE.
 - [DNS-RECORDS.md](DNS-RECORDS.md) — Route53 records (round-robin A across both HAProxy IPs).
