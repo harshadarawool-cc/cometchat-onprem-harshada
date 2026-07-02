@@ -87,6 +87,14 @@ spec:
           readinessProbe: { tcpSocket: { port: 9001 }, initialDelaySeconds: 15, periodSeconds: 10 }
           livenessProbe:  { tcpSocket: { port: 9001 }, initialDelaySeconds: 40, periodSeconds: 20 }
           resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 512Mi } }
+        # db-proxy: the Etherpad image's startup gate waits on MySQL at 127.0.0.1:3306, so forward that
+        # to the real MySQL VM. IP is this cluster's mysql_host (10.24.10.41 = SUBNET_DATA + .41);
+        # update if SUBNET_DATA_CIDR changes. (socat entrypoint = socat, so args are socat args — no shell.)
+        - name: db-proxy
+          image: alpine/socat
+          args: ["TCP-LISTEN:3306,fork,reuseaddr", "TCP:10.24.10.41:3306"]
+          ports: [{ containerPort: 3306 }]
+          resources: { requests: { cpu: 10m, memory: 16Mi }, limits: { cpu: 100m, memory: 64Mi } }
         - name: nginx-tls
           image: nginx:1.27-alpine
           ports: [{ containerPort: 80, name: http }, { containerPort: 443, name: https }]
