@@ -1,7 +1,7 @@
-# CometChat customer-dashboard (on-prem). The image ships a static React build that fetches
-# /config.json at runtime (falls back to baked cc-cluster-1.io defaults if absent). We copy the
-# build out of the image (initContainer) and serve it with nginx, overlaying our runtime config.json
-# (REACT_APP_* values for this deployment). nginx config lives in dashboard-nginx.yaml (cm dashboard-nginx).
+# CometChat customer-dashboard (on-prem). The image is now SELF-SERVING + shell-less (hardened): it runs
+# its own static server on :4000. So we run it directly (no build-copy initContainer — the image has no
+# shell) behind an nginx TLS sidecar that terminates the wildcard cert on :443, overrides /config.json with
+# our on-prem values, and rewrites the one hardcoded public host in the bundle. nginx config: dashboard-nginx.yaml.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -28,24 +28,22 @@ spec:
     metadata: { labels: { app.kubernetes.io/name: dashboard } }
     spec:
       imagePullSecrets: [{ name: ecr-pull }]
-      initContainers:
-        - name: copy-build
-          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:28078c3bbd84ebfeb08dce31916735baca1c6ddd77604d1efd4db895577c3457  # :customer-dashboard (user-pinned 2026-07-02)
-          command: ["sh","-c","cp -r /app/build/. /web/ 2>/dev/null || cp -r /usr/share/nginx/html/. /web/ 2>/dev/null || cp -r /app/dist/. /web/; echo copied $(find /web -type f | wc -l) files"]
-          volumeMounts: [{ name: web, mountPath: /web }]
       containers:
+        - name: dashboard
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:28078c3bbd84ebfeb08dce31916735baca1c6ddd77604d1efd4db895577c3457  # :customer-dashboard (self-serving :4000, shell-less)
+          ports: [{ containerPort: 4000 }]
+          readinessProbe: { tcpSocket: { port: 4000 }, initialDelaySeconds: 5, periodSeconds: 10 }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 300m, memory: 256Mi } }
         - name: nginx
           image: nginx:1.27-alpine
           ports: [{ containerPort: 80 }, { containerPort: 443 }]
           volumeMounts:
-            - { name: web, mountPath: /usr/share/nginx/html }
             - { name: cfg, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf }
-            - { name: appconfig, mountPath: /usr/share/nginx/html/config.json, subPath: config.json, readOnly: true }
+            - { name: appconfig, mountPath: /cfg/config.json, subPath: config.json, readOnly: true }
             - { name: tls, mountPath: /etc/nginx/ssl, readOnly: true }
           readinessProbe: { httpGet: { path: /nginx-health, port: 80 }, initialDelaySeconds: 5, periodSeconds: 10 }
           resources: { requests: { cpu: 25m, memory: 48Mi }, limits: { cpu: 200m, memory: 128Mi } }
       volumes:
-        - { name: web, emptyDir: {} }
         - { name: cfg, configMap: { name: dashboard-nginx } }
         - { name: appconfig, configMap: { name: dashboard-config } }
         - { name: tls, secret: { secretName: wildcard-tls } }

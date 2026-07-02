@@ -1,8 +1,9 @@
-# Dashboard nginx — serves the static SPA AND rewrites the one hardcoded public host
-# the CometChat build left in (the apikeys data-host fallback `||"api.cometchat.com"`).
-# sub_filter swaps it to the on-prem data host at serve-time so NO browser call leaves to
-# the public cloud. (Proper fix is a dashboard build with apiHost parameterized; this is the
-# on-prem-correct workaround until then.)
+# Dashboard nginx sidecar — the customer-dashboard image is now SELF-SERVING (hardened, shell-less:
+# it runs its own static server on :4000). So instead of extracting the build (needs a shell the image
+# no longer has), we proxy to :4000 and layer the on-prem bits here:
+#   - /config.json  -> served from the dashboard-config ConfigMap (on-prem REACT_APP_* values)
+#   - sub_filter    -> rewrite the one hardcoded public host in the JS bundle to the on-prem host
+#   - :443 TLS      -> per-pod wildcard cert (HAProxy SNI edge terminates in the pod)
 apiVersion: v1
 kind: ConfigMap
 metadata: { name: dashboard-nginx, namespace: cometchat }
@@ -10,24 +11,24 @@ data:
   default.conf: |
     server {
       listen 80;
-      # pod-TLS: also terminate the wildcard cert on :443 so the HAProxy SNI-passthrough
-      # edge can reach the dashboard (TLS terminates HERE, in the pod, not at the edge).
       listen 443 ssl;
       ssl_certificate     /etc/nginx/ssl/tls.crt;
       ssl_certificate_key /etc/nginx/ssl/tls.key;
-      root /usr/share/nginx/html;
-      index index.html;
+      underscores_in_headers on;
       location = /nginx-health { access_log off; return 200 'ok'; }
-
-      # rewrite the hardcoded public data host -> on-prem (keeps all data on cometchat-cluster-2.in)
-      sub_filter_once off;
-      sub_filter_types application/javascript text/javascript application/json text/html;
-      sub_filter 'api.cometchat.com' 'api-onprem.cometchat-cluster-2.in';
-      sub_filter 'api-%s.cometchat.io' 'api-%s.cometchat-cluster-2.in';
-      # safety net: rewrite any baked old-domain fallback left in the bundle
-      sub_filter 'cc-cluster-1.io' 'cometchat-cluster-2.in';
-
+      # Serve the on-prem config.json directly (overrides the image's baked default).
+      location = /config.json {
+        default_type application/json;
+        alias /cfg/config.json;
+      }
       location / {
-        try_files $uri $uri/ /index.html;
+        proxy_pass http://127.0.0.1:4000;      # the dashboard image's own server
+        proxy_set_header Host $host;
+        proxy_set_header Accept-Encoding "";    # disable upstream gzip so sub_filter can rewrite
+        # rewrite the hardcoded public hosts left in the bundle -> on-prem (keeps all data in-cluster)
+        sub_filter_once off;
+        sub_filter_types application/javascript text/javascript application/json text/html;
+        sub_filter 'api.cometchat.com' 'api-onprem.cometchat-cluster-2.in';
+        sub_filter 'cc-cluster-1.io'   'cometchat-cluster-2.in';
       }
     }
