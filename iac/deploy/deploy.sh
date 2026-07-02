@@ -285,11 +285,19 @@ phase_rke2() {
   # base StorageClass: RKE2 ships NONE, so without this EVERY PVC (opensearch/ollama/seaweedfs/etherpad)
   # hangs Pending ("unbound immediate PersistentVolumeClaims"). Install the local-path provisioner + the
   # `local-path` default SC now — cluster is up + kubeconfig ready, and this MUST precede any PVC phase.
+  # FAIL-FAST + RETRY: this is FOUNDATIONAL — a silent skip here strands seaweedfs/opensearch/ollama in
+  # Pending forever. Retry a few times (first apply can race the freshly-regenerated kubeconfig/tunnel),
+  # then DIE if the StorageClass still isn't confirmed. Do NOT downgrade this to a warn.
   open_tunnel
-  kc apply -f "$K8S/local-path-storage.yaml" >/dev/null 2>&1 \
-    && kc -n local-path-storage rollout status deploy/local-path-provisioner --timeout=120s >/dev/null 2>&1 \
-    && ok "local-path StorageClass (default) + provisioner ready" \
-    || warn "local-path provisioner not confirmed — PVCs will hang until it's up (check: kc get sc)"
+  local lp_ok="" attempt
+  for attempt in 1 2 3 4; do
+    kc apply -f "$K8S/local-path-storage.yaml" >/dev/null 2>&1 || true
+    if kc -n local-path-storage rollout status deploy/local-path-provisioner --timeout=90s >/dev/null 2>&1 \
+       && kc get storageclass local-path >/dev/null 2>&1; then lp_ok=1; break; fi
+    warn "local-path not confirmed (attempt $attempt/4) — retrying in 10s…"; sleep 10
+  done
+  [ -n "$lp_ok" ] && ok "local-path StorageClass (default) + provisioner ready" \
+    || die "local-path StorageClass/provisioner NOT ready after 4 tries — every PVC (seaweedfs/opensearch/ollama) would hang Pending. ABORTING (fix: kc apply -f $K8S/local-path-storage.yaml ; kc get sc)."
 }
 
 # =============================================================================
@@ -408,6 +416,17 @@ phase_secrets() {
 phase_support() {
   step "support services + opensearch ES8 proxy"
   open_tunnel
+  # FAIL-FAST: support is the first PVC-using app phase. If local-path is missing (e.g. app-all run
+  # standalone, or the infra install raced), opensearch/ollama/seaweedfs would hang Pending forever.
+  # Ensure the StorageClass exists NOW and DIE if it can't be confirmed (don't silently hang later).
+  if ! kc get storageclass local-path >/dev/null 2>&1; then
+    warn "local-path StorageClass missing — installing it before PVC workloads…"
+    kc apply -f "$K8S/local-path-storage.yaml" >/dev/null 2>&1 || true
+    kc -n local-path-storage rollout status deploy/local-path-provisioner --timeout=120s >/dev/null 2>&1 || true
+    kc get storageclass local-path >/dev/null 2>&1 \
+      || die "local-path StorageClass NOT present — every PVC would hang Pending. ABORTING (kc apply -f $K8S/local-path-storage.yaml)."
+    ok "local-path StorageClass installed"
+  fi
   kc apply -f "$K8S/support-services.yaml"   # mailpit/opensearch/ollama (SeaweedFS is now its own phase)
   log "waiting for opensearch…"
   kc -n "$NS" rollout status deploy/opensearch --timeout=180s || warn "opensearch not ready yet"
@@ -465,6 +484,17 @@ PY
 phase_apps() {
   step "apps — chatapi/mgmtapi + curated node apps"
   open_tunnel
+  # FAIL-FAST FOUNDATION GATE: do NOT deploy apps onto a broken base. chatapi needs the object store,
+  # service-search needs OpenSearch, and everything needs a StorageClass. If any is missing, STOP here
+  # with a clear message instead of deploying apps that will CrashLoop against absent backends.
+  local _gate_err=""
+  kc get storageclass local-path >/dev/null 2>&1 || _gate_err="${_gate_err}\n  - StorageClass 'local-path' missing (PVCs will hang). Fix: kc apply -f $K8S/local-path-storage.yaml"
+  kc -n "$NS" get pod seaweedfs-filer-0 -o jsonpath='{.status.phase}' 2>/dev/null | grep -q Running \
+    || _gate_err="${_gate_err}\n  - SeaweedFS filer not Running (chatapi media would fail). Fix: ./deploy.sh storage ; kc -n $NS get pods -l app=seaweedfs"
+  kc -n "$NS" get pods -l app=opensearch --no-headers 2>/dev/null | grep -q Running \
+    || _gate_err="${_gate_err}\n  - OpenSearch not Running (service-search would fail). Fix: ./deploy.sh support ; kc -n $NS get pods -l app=opensearch"
+  [ -z "$_gate_err" ] && ok "foundation gate OK (StorageClass + SeaweedFS + OpenSearch ready)" \
+    || die "foundation NOT ready — refusing to deploy apps onto a broken base:$(printf '%b' "$_gate_err")"
   # link-preview consumer patch (after_message) — the extensions deploy mounts this ConfigMap over the
   # image's buggy controller. Must exist BEFORE the extensions pod starts.
   [ -f "$K8S/patches/LinkPreviewController.js" ] && \
