@@ -10,18 +10,22 @@
 #     ./deploy.sh                 # INFRA rebuild: preflight -> terraform -> datastores
 #                                 #   (+ kafka topics) -> rke2 -> data seed   [the one-click]
 #     ./deploy.sh app-all         # APP phase: secrets -> support -> storage -> editors ->
-#                                 #   apps -> node-apps -> coredns(split-horizon) -> ingress ->
-#                                 #   certs(Let's Encrypt) -> verify (gated)
+#                                 #   apps -> node-apps -> coredns(split-horizon) -> edge(NodePorts)
+#                                 #   -> haproxy(SNI edge) -> certs(Let's Encrypt) -> verify (gated)
 #     ./deploy.sh all             # infra + apps end-to-end — EVERYTHING, all services
-#                                 #   ORDER: VMs -> datastores(+kafka topics) -> seed(ALL dumps
-#                                 #   + mongo/vcb/moderation seeds) -> THEN apps -> ingress -> certs
+#                                 #   ORDER: VMs(+HAProxy) -> datastores(+kafka topics) -> seed(ALL
+#                                 #   dumps + seeds) -> apps -> edge NodePorts -> HAProxy -> certs
 #     ./deploy.sh <phase>         # run ONE phase (see PHASES below)
-#     ./deploy.sh status          # show LB IP, nodes, datastore health
+#     ./deploy.sh status          # show HAProxy edge IPs, nodes, datastore health
 #     ./deploy.sh --help
+#
+#   EDGE MODEL: 2 HAProxy VMs do L4 SNI passthrough -> per-service NodePorts (30443-30452) ->
+#     pod nginx TLS sidecar (:443). TLS terminates IN THE POD, never at the edge. East-west uses
+#     CoreDNS direct-to-Service split-horizon. NO cloud LB, NO central ingress. See docs/HAPROXY-EDGE.md.
 #
 #   PHASES (run individually):
 #     preflight datastores-wait infra inventory datastores rke2 seed
-#     secrets support storage apps node-apps coredns ingress verify status
+#     secrets support storage apps node-apps coredns edge haproxy certs verify status
 #     storage   (consolidated HA SeaweedFS + cometchatFS console — the ONE object store,
 #                ns cometchat; now part of app-all/all, between support and apps)
 #
@@ -174,6 +178,8 @@ disk_type          = "$DISK_TYPE"
 edge_allowed_cidrs = $EDGE_ALLOWED_CIDRS
 rke2_server = { count = $RKE2_SERVER_COUNT, machine_type = "$RKE2_SERVER_TYPE" }
 rke2_agent  = { count = $RKE2_AGENT_COUNT, machine_type = "$RKE2_AGENT_TYPE" }
+haproxy     = { count = ${HAPROXY_COUNT:-2}, machine_type = "${HAPROXY_TYPE:-e2-small}" }
+disk_kms_key       = "${DISK_KMS_KEY:-}"
 subnet_data_cidr    = "$SUBNET_DATA_CIDR"
 subnet_cluster_cidr = "$SUBNET_CLUSTER_CIDR"
 subnet_edge_cidr    = "$SUBNET_EDGE_CIDR"
@@ -201,17 +207,21 @@ phase_infra() {
 # PHASE: inventory  — propagate the DYNAMIC edge LB IP (PROBLEMS B3) into group_vars
 # =============================================================================
 phase_inventory() {
-  step "inventory — propagate edge LB IP"
-  local ip; ip="$(tf terraform output -raw edge_lb_ip 2>/dev/null || true)"
-  [ -n "$ip" ] || { warn "edge_lb_ip output empty (infra not applied yet?) — skipping"; return 0; }
-  ok "edge LB IP = $ip"
-  # rewrite group_vars (used by RKE2 tls-san) — never hardcode this again (B3)
-  local gv="$ANS/group_vars/all/main.yml"
-  if grep -q '^edge_lb_ip:' "$gv"; then
-    sed -i.bak -E "s|^edge_lb_ip:.*|edge_lb_ip: \"$ip\"|" "$gv" && rm -f "$gv.bak"
-    ok "updated edge_lb_ip in group_vars/all/main.yml"
+  step "inventory — propagate the 2 HAProxy edge public IPs"
+  # HAProxy replaces the GCP LB: 2 VMs, 2 public IPs, DNS round-robins facing hosts across both.
+  local ips_json; ips_json="$(tf terraform output -json haproxy_ips 2>/dev/null || true)"
+  [ -n "$ips_json" ] && [ "$ips_json" != "null" ] || { warn "haproxy_ips output empty (infra not applied yet?) — skipping"; return 0; }
+  # flatten to a space-separated list for logging + a YAML flow list for group_vars
+  local ips; ips="$(printf '%s' "$ips_json" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)))')"
+  ok "HAProxy edge IPs = $ips"
+  # edge_public_ips feeds the RKE2 API tls-san (extra SANs) — never hardcode these (B3).
+  local gv="$ANS/group_vars/all/main.yml" flow
+  flow="$(printf '%s' "$ips_json" | python3 -c 'import json,sys; print("[" + ", ".join("\"%s\""%x for x in json.load(sys.stdin)) + "]")')"
+  if grep -q '^edge_public_ips:' "$gv"; then
+    sed -i.bak -E "s|^edge_public_ips:.*|edge_public_ips: $flow|" "$gv" && rm -f "$gv.bak"
+    ok "updated edge_public_ips in group_vars/all/main.yml -> $flow"
   fi
-  printf '%s\n' "$ip" > "$IAC/.edge_lb_ip"
+  printf '%s\n' "$ips" > "$IAC/.haproxy_ips"
 }
 
 # wait until the datastore VMs answer SSH over IAP (post-boot, B1)
@@ -506,70 +516,27 @@ phase_node_apps() {
 #   Reconcile-safe (coredns-custom ConfigMap). See k8s/coredns-split-horizon.yaml.
 # =============================================================================
 phase_coredns() {
-  step "coredns split-horizon (POD-TLS) — on-prem FQDNs -> in-cluster Service :443, catch-all -> ingress ($INGRESS_INTERNAL_IP)"
+  step "coredns split-horizon (per-pod TLS, DIRECT-to-Service) — every on-prem FQDN -> its Service"
   open_tunnel
   local dom_re="${DOMAIN//./\\.}"                  # escape dots for the CoreDNS regex
-  # 1) catch-all backing Service: rke2 ingress-nginx is a hostNetwork DaemonSet with NO ClusterIP, so the
-  #    pinned INGRESS_INTERNAL_IP the catch-all points at is a blackhole without this. Gives it the ingress
-  #    pods as endpoints so un-rewritten *.$DOMAIN storage hosts (media/data/files-onprem) route in-cluster.
-  kc apply -f "$K8S/ingress-internal-svc.yaml" >/dev/null 2>&1 \
-    && ok "ingress-internal Service ($INGRESS_INTERNAL_IP) backs the catch-all (media/data/files-onprem in-cluster)" \
-    || warn "ingress-internal-svc apply failed — media/stickers may 000"
-  # 2) POD-TLS split-horizon HCC: build the per-FQDN `rewrite stop` block from the SERVICE_MAP (single source
-  #    of truth), inject it into the HCC template, apply. Each on-prem FQDN -> its Service (nginx sidecar
-  #    terminates wildcard-tls on :443). Durable: the helm-controller re-renders the Corefile from this HCC.
-  DOMAIN="$DOMAIN" DOMAIN_RE="$dom_re" INGRESS_IP="$INGRESS_INTERNAL_IP" NS="$NS" HCC="$K8S/coredns-splithorizon-hcc.yaml" \
-    python3 - > /tmp/cc-coredns-hcc.yaml <<'PY'
-import os
-d=os.environ['DOMAIN']; dre=os.environ['DOMAIN_RE']; ip=os.environ['INGRESS_IP']; ns=os.environ['NS']
-# region-prefixed hosts (us.<host>.<domain>) need the regex variant too (answer auto preserves the {appId}/region label)
-WILDCARD={"api-onprem","apiclient-onprem","websocket-onprem"}
-# SINGLE SOURCE OF TRUTH: on-prem subdomain label -> in-cluster Service name (ns = $NS). Add a row to expose a host.
-SERVICE_MAP=[
-  ("api-onprem","chatapi"),("apiclient-onprem","chatapi"),("websocket-onprem","websocket"),("ws-onprem","websocket"),
-  ("rule-onprem","moderationservice"),("webhooks-onprem","globalwebhooks"),("notifications-onprem","notificationscore"),
-  ("metrics-onprem","analytics"),("metrics-pro-onprem","metrics-pro"),("internal-search-onprem","service-search"),
-  ("internal-vcb-onprem","visual-chat-builder"),("internal-apivcb-onprem","visual-chat-builder"),
-  ("extensions-onprem","extensions"),("stickers-onprem","extensions"),("thumbnail-generator-onprem","extensions"),
-  ("link-preview-onprem","extensions"),("polls-onprem","extensions"),("document-onprem","extensions"),
-  ("whiteboard-onprem","extensions"),("document-embed-onprem","document-embed"),("whiteboard-embed-onprem","whiteboard"),
-  ("apimgmt","mgmtapi"),("app","dashboard"),("test.antivirus","clamav"),
-]
-IND="          "  # 10 spaces: the plugin list-item indent inside servers[0].plugins
-L=[]
-for label,svc in SERVICE_MAP:
-    tgt=f"{svc}.{ns}.svc.cluster.local"; lre=label.replace('.','\\.')
-    if label in WILDCARD:
-        L+=[f"{IND}- name: rewrite", f"{IND}  parameters: stop", f"{IND}  configBlock: |-",
-            f"{IND}    name regex (.*)\\.{lre}\\.{dre} {tgt}", f"{IND}    answer auto"]
-    L.append(f"{IND}- name: rewrite")
-    L.append(f"{IND}  parameters: stop name exact {label}.{d} {tgt}")
-# SaaS data-plane fallbacks the SDK/dashboard may hardcode -> keep IN-CLUSTER (defense-in-depth data residency)
-for h in ["api.cometchat.com","apiclient-onprem.cometchat.com"]:
-    L+=[f"{IND}- name: rewrite", f"{IND}  parameters: stop name exact {h} chatapi.{ns}.svc.cluster.local"]
-block="\n".join(L)
-tpl=open(os.environ['HCC']).read()
-out=tpl.replace(f"{IND}# __REWRITES__", block).replace("__DOMAIN_RE__",dre).replace("__INGRESS_IP__",ip)
-import sys; sys.stdout.write(out)
-PY
-  if ! grep -q 'rewrite stop name exact api-onprem' /tmp/cc-coredns-hcc.yaml 2>/dev/null; then
-    warn "coredns HCC render produced no rewrites — aborting coredns (check SERVICE_MAP / template)"; return 1
+  # HAProxy edge model: NO central ingress. North-south is HAProxy SNI -> per-service NodePort ->
+  # pod nginx sidecar :443. East-west is CoreDNS rewriting each customer FQDN STRAIGHT to its backing
+  # Service (chatapi.cometchat.svc, …) with `answer auto` (keeps {appId} in Host); the rewritten
+  # cluster.local query is resolved by re-forwarding to CoreDNS's own kubernetes plugin. Data-tier hosts
+  # (media/data/files-onprem) go to seaweedfs-edge (:443 TLS). So NO ingress-internal-svc / catch-all.
+  # Substitute __DOMAIN_RE__ FIRST (it contains __DOMAIN__ as a substring), then __DOMAIN__.
+  sed -e "s|__DOMAIN_RE__|$dom_re|g" -e "s|__DOMAIN__|$DOMAIN|g" "$K8S/coredns-direct.yaml" > /tmp/cc-coredns-direct.yaml
+  if ! grep -q "rewrite name exact api-onprem.$DOMAIN" /tmp/cc-coredns-direct.yaml 2>/dev/null; then
+    warn "coredns-direct render produced no rewrites — aborting coredns (check k8s/coredns-direct.yaml)"; return 1
   fi
-  kc apply -f /tmp/cc-coredns-hcc.yaml >/dev/null \
-    && ok "applied POD-TLS split-horizon HCC (per-FQDN rewrites -> Service:443, catch-all -> $INGRESS_INTERNAL_IP)" \
-    || { warn "coredns HCC apply failed"; return 1; }
-  # 3) helm-controller re-renders the Corefile from the HCC (~30-90s); wait for it to carry a rewrite.
-  local i ok_rw=""
-  for i in $(seq 1 30); do
-    kc -n kube-system get cm rke2-coredns-rke2-coredns -o jsonpath='{.data.Corefile}' 2>/dev/null \
-      | grep -q "rewrite stop name exact api-onprem.$DOMAIN" && { ok_rw=1; break; }; sleep 5
-  done
-  [ -n "$ok_rw" ] && ok "Corefile carries the pod-TLS rewrites" \
-    || warn "Corefile did NOT pick up rewrites (helm-controller slow? verify: kc -n kube-system get cm rke2-coredns-rke2-coredns -o jsonpath='{.data.Corefile}')"
-  # 4) confirm CoreDNS is healthy after the reload (a bad Corefile CrashLoops it -> DNS outage; check + warn loudly).
+  kc apply -f /tmp/cc-coredns-direct.yaml >/dev/null \
+    && ok "applied coredns-custom (per-FQDN DIRECT-to-Service split-horizon; data-tier -> seaweedfs-edge:443)" \
+    || { warn "coredns-custom apply failed"; return 1; }
+  # coredns-custom is imported by rke2-coredns on reload; bounce it to pick up promptly + confirm healthy.
+  kc -n kube-system rollout restart deploy/rke2-coredns >/dev/null 2>&1 || true
   kc -n kube-system rollout status deploy/rke2-coredns --timeout=120s >/dev/null 2>&1 \
-    && ok "CoreDNS healthy after pod-TLS split-horizon reload" \
-    || err "CoreDNS NOT healthy after reload — check 'kc -n kube-system get pods -l k8s-app=kube-dns' and logs; roll back the HCC if CrashLooping"
+    && ok "CoreDNS healthy after direct split-horizon reload" \
+    || err "CoreDNS NOT healthy after reload — check 'kc -n kube-system get pods -l k8s-app=kube-dns' + logs; a malformed coredns-custom .server CrashLoops it"
 }
 
 # =============================================================================
@@ -597,16 +564,30 @@ phase_storage_seed() {
 }
 
 # =============================================================================
-# PHASE: ingress  — edge ingress (front with the LB IP from terraform output, B3)
+# PHASE: edge  — NodePort overlay (the north-south entry points for the HAProxy edge)
+#   Replaces the old ingress phase. Applies the fixed-NodePort <svc>-edge Services
+#   (:443 -> pod nginx sidecar). HAProxy (phase_haproxy) SNI-routes to these NodePorts.
 # =============================================================================
-phase_ingress() {
-  step "ingress"
+phase_edge() {
+  step "edge — NodePort overlay (facing services :443 -> fixed NodePorts for HAProxy SNI)"
   open_tunnel
-  kc apply -f "$K8S/ingress.yaml"
-  # sample-app avatar host: assets.$DOMAIN -> seaweedfs (own Ingress; per-resource rewrite /(.*) -> /assets/$1)
-  [ -f "$K8S/assets-ingress.yaml" ] && kc apply -f "$K8S/assets-ingress.yaml" >/dev/null 2>&1 && ok "assets ingress applied (assets.$DOMAIN)"
-  local ip; ip="$(cat "$IAC/.edge_lb_ip" 2>/dev/null || tf terraform output -raw edge_lb_ip 2>/dev/null || echo '?')"
-  ok "ingress applied — point public DNS for *.$DOMAIN at the edge LB: $ip"
+  kc apply -f "$K8S/edge-nodeports.yaml" \
+    && ok "edge NodePorts applied (chatapi 30443 … notificationscore 30452 — see k8s/edge-nodeports.yaml)" \
+    || warn "edge-nodeports apply failed"
+  local ips; ips="$(cat "$IAC/.haproxy_ips" 2>/dev/null || tr '\n' ' ' < /dev/null)"
+  ok "point public DNS (round-robin A) for the facing hosts at the HAProxy IPs: ${ips:-<run phase_inventory>}"
+}
+
+# =============================================================================
+# PHASE: haproxy  — configure the 2 HAProxy edge VMs (L4 SNI passthrough -> NodePorts).
+#   Runs AFTER the NodePort Services exist (phase_edge) and the RKE2 agents are up
+#   (the config templates backends from the rke2_agents inventory group). Idempotent;
+#   the config is validated (`haproxy -c`) before it replaces the running one.
+# =============================================================================
+phase_haproxy() {
+  step "haproxy — configure the edge VMs (SNI passthrough -> per-service NodePorts)"
+  apb haproxy.yml && ok "HAProxy edge configured (SNI -> NodePorts; stats on :8404 via IAP)" \
+    || warn "haproxy playbook failed — check ansible reachability to the haproxy group"
 }
 
 # =============================================================================
@@ -686,15 +667,17 @@ phase_verify() {
   local notrun; notrun="$(kc -n "$NS" get pods --no-headers 2>/dev/null | awk '$3!="Running" && $3!="Completed"{print "    "$1"  "$3}' || true)"
   [ -n "$notrun" ] && { warn "pods not Running:"; printf '%s\n' "$notrun" >&2; }
 
-  # Split-horizon DNS check: api-onprem.<domain> must resolve IN-CLUSTER to the internal ingress IP.
-  step "split-horizon DNS ( *.$DOMAIN -> $INGRESS_INTERNAL_IP )"
+  # Split-horizon DNS check (direct-to-Service model): api-onprem.<domain> must resolve IN-CLUSTER to
+  # the chatapi Service ClusterIP (NOT a public/HAProxy IP) — proving east-west stays in the cluster.
+  local cip; cip="$(kc -n "$NS" get svc chatapi -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)"
+  step "split-horizon DNS ( api-onprem.$DOMAIN -> chatapi ClusterIP ${cip:-?} )"
   local probe="cc-dns-$$"
-  if kc -n "$NS" run "$probe" --rm -i --restart=Never --image=busybox:1.36 --timeout=70s -- \
-        nslookup "api-onprem.$DOMAIN" 2>/dev/null | grep -q "$INGRESS_INTERNAL_IP"; then
-    ok "in-cluster DNS resolves api-onprem.$DOMAIN -> $INGRESS_INTERNAL_IP (data stays in-cluster)"
+  if [ -n "$cip" ] && kc -n "$NS" run "$probe" --rm -i --restart=Never --image=busybox:1.36 --timeout=70s -- \
+        nslookup "api-onprem.$DOMAIN" 2>/dev/null | grep -q "$cip"; then
+    ok "in-cluster DNS resolves api-onprem.$DOMAIN -> $cip (chatapi ClusterIP; data stays in-cluster)"
   else
-    warn "split-horizon DNS did NOT resolve to $INGRESS_INTERNAL_IP — inter-service calls may leak public."
-    warn "  re-run: ./deploy.sh coredns   (and confirm INGRESS_INTERNAL_IP matches your service CIDR)"
+    warn "split-horizon DNS did NOT resolve api-onprem.$DOMAIN to chatapi's ClusterIP — east-west may leak public."
+    warn "  re-run: ./deploy.sh coredns   (and check 'kc -n kube-system get cm coredns-custom -o yaml')"
   fi
 
   step "summary"
@@ -703,9 +686,9 @@ phase_verify() {
 }
 phase_status() {
   step "status"
-  local ip; ip="$(tf terraform output -raw edge_lb_ip 2>/dev/null || echo '(infra not applied)')"
-  echo "  project   : $PROJECT  region: $REGION  zone: $ZONE"
-  echo "  edge LB IP: $ip"
+  local ips; ips="$(tf terraform output -json haproxy_ips 2>/dev/null | python3 -c 'import json,sys;print(" ".join(json.load(sys.stdin)))' 2>/dev/null || echo '(infra not applied)')"
+  echo "  project     : $PROJECT  region: $REGION  zone: $ZONE"
+  echo "  HAProxy IPs : $ips   (DNS round-robins facing hosts across these)"
   open_tunnel
   kc get nodes 2>/dev/null || warn "cluster unreachable"
   kc -n "$NS" get pods 2>/dev/null || true
@@ -738,7 +721,9 @@ main() {
     apps)             phase_apps ;;
     node-apps)        phase_node_apps ;;
     coredns)          phase_coredns ;;
-    ingress)          phase_ingress ;;
+    edge)             phase_edge ;;         # NodePort overlay (facing :443 -> fixed NodePorts)
+    ingress)          phase_edge ;;         # back-compat alias -> edge (no central ingress in the HAProxy model)
+    haproxy)          phase_haproxy ;;      # (re)configure the 2 HAProxy edge VMs (SNI -> NodePorts)
     certs)            phase_certs ;;        # cert-manager + Let's Encrypt (Route53 DNS-01) wildcard -> wildcard-tls
     verify)           phase_verify ;;
     status)           phase_status ;;
@@ -752,13 +737,13 @@ main() {
       ok "Next (when ECR + licence + secrets/apps are ready):  ./deploy.sh app-all"
       ;;
     app-all)          # the gated APP phase — EVERYTHING app-side, in order
-      phase_secrets; phase_support; phase_storage; phase_editors; phase_apps; phase_node_apps; phase_coredns; phase_ingress; phase_certs; phase_storage_seed
+      phase_secrets; phase_support; phase_storage; phase_editors; phase_apps; phase_node_apps; phase_coredns; phase_edge; phase_haproxy; phase_certs; phase_storage_seed
       step "DONE — app phase applied"; phase_verify ;;
     all)              # the true one-click: zero -> fully-working, all services
       phase_preflight; phase_infra; phase_inventory; phase_datastores_wait
       phase_credgen
       phase_datastores; phase_rke2; phase_seed
-      phase_secrets; phase_support; phase_storage; phase_editors; phase_apps; phase_node_apps; phase_coredns; phase_ingress; phase_certs; phase_storage_seed; phase_verify ;;
+      phase_secrets; phase_support; phase_storage; phase_editors; phase_apps; phase_node_apps; phase_coredns; phase_edge; phase_haproxy; phase_certs; phase_storage_seed; phase_verify ;;
     *) err "unknown target: $target"; usage; exit 2 ;;
   esac
 }
