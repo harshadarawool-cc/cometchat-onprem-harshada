@@ -5,7 +5,8 @@ per-pod TLS**. The docs below marked **★** are the authoritative set for THIS 
 carried-over deep-dives (still valid where noted).
 
 ## ★ Start here (this architecture)
-- [ARCHITECTURE.md](ARCHITECTURE.md) — system overview, the four planes, request lifecycle. **Read first.**
+- [UNDERSTANDING-YOUR-INFRA.md](UNDERSTANDING-YOUR-INFRA.md) — **plain-language guide, basics → advanced**: what every component is for, the real-time chat flow, why object storage. Read this to *learn* the platform.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — system overview, the four planes, request lifecycle (the technical summary).
 - [DEPLOYMENT.md](DEPLOYMENT.md) — the one-click runbook + phase order + end-to-end verification.
 - [NETWORKING.md](NETWORKING.md) — FQDN model, split-horizon DNS, per-pod TLS, edge routing, CORS/503 triage.
 - [HAPROXY-EDGE.md](HAPROXY-EDGE.md) — HAProxy config, SNI→NodePort map, stats, HA.
