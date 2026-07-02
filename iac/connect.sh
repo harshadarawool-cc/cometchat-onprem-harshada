@@ -26,7 +26,7 @@ REDIS_PROMETRICS_IP="$DATA3.27"; REDIS_BULLMQ_IP="$DATA3.61"; KAFKA_IP="$DATA3.3
 MYSQL_IP="$DATA3.41"; TIDB_IP="$DATA3.51"
 SR="$HERE/secrets-rendered"
 export KUBECONFIG="$HERE/kubeconfig-$KPORT"
-LB_IP="$(cat "$HERE/.edge_lb_ip" 2>/dev/null || echo '?')"
+LB_IP="$(cat "$HERE/.haproxy_ips" 2>/dev/null || echo '(run deploy.sh inventory)')"   # HAProxy edge IPs
 
 up(){ (exec 3<>/dev/tcp/127.0.0.1/"$1") 2>/dev/null && { exec 3>&- 3<&-; return 0; }; return 1; }
 
@@ -59,12 +59,15 @@ for entry in "mailpit:8025:8025" "opensearch:9200:9200" "seaweedfs:8333:8333"; d
   fi
 done
 
-# ---- creds (from the rendered envs deploy.sh generated + the ansible vault) ----
-TIDB_PW="$(grep -E '^DB_PASSWORD=' "$SR/chatapi.env" 2>/dev/null | cut -d= -f2-)"
-MYSQL_PW="$(grep -E '^DB_PASSWORD=' "$SR/mgmtapi.env" 2>/dev/null | cut -d= -f2-)"
-VV(){ ( cd "$HERE/ansible" && ansible-vault view group_vars/all/vault.yml 2>/dev/null ) | grep -E "^$1" | sed -E 's/^[^:]*:[[:space:]]*//; s/^"//; s/"$//; s/^'\''//; s/'\''$//'; }
-MONGO_PW="$(VV vault_mongo_admin_password)"
-REDIS_PW="$(VV redis_requirepass)"
+# ---- creds: the ACTUAL sources this repo uses — app .env (secrets/apps/<app>/.env) for the MySQL/TiDB
+#      root password, and the fresh per-cluster creds (secrets/infra/cluster-creds.yml, from credgen) for
+#      Mongo. Redis has no auth on the private subnet. (Was: secrets-rendered/ + ansible vault — stale.) ----
+SEC_APPS="$HERE/secrets/apps"; CREDS="$HERE/secrets/infra/cluster-creds.yml"
+TIDB_PW="$(grep -E '^DB_PASSWORD=' "$SEC_APPS/chatapi/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r')"
+MYSQL_PW="$(grep -E '^DB_PASSWORD=' "$SEC_APPS/mgmtapi/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r')"
+CV(){ grep -E "^[[:space:]]*$1:" "$CREDS" 2>/dev/null | head -1 | sed -E 's/^[^:]*:[[:space:]]*"?([^"#[:space:]]+)"?.*/\1/'; }
+MONGO_PW="$(CV vault_mongo_admin_password)"
+REDIS_PW=""   # redis on the private subnet runs with no auth (bind 0.0.0.0, protected-mode no)
 S3_KEY="$(kubectl -n "$NS" get secret seaweedfs-s3-creds -o jsonpath='{.data.access-key}' 2>/dev/null | base64 --decode 2>/dev/null)"
 S3_SECRET="$(kubectl -n "$NS" get secret seaweedfs-s3-creds -o jsonpath='{.data.secret-key}' 2>/dev/null | base64 --decode 2>/dev/null)"
 DB_USER="root"
@@ -72,7 +75,7 @@ DB_USER="root"
 cat <<EOF
 
 ================================ CONNECT ($PREFIX) ================================
-edge LB IP: $LB_IP        (point $DOMAIN A-records here)
+HAProxy edge IPs: $LB_IP   (DNS round-robins the facing hosts across these)
 DB admin user: $DB_USER   (current creds; rotating to fresh per-service later)
 
 kubectl:    export KUBECONFIG=$HERE/kubeconfig-$KPORT
