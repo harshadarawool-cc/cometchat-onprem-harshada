@@ -10,6 +10,11 @@ data:
   default.conf: |
     server {
       listen 80;
+      # pod-TLS: also terminate the wildcard cert on :443 so the HAProxy SNI-passthrough
+      # edge can reach the dashboard (TLS terminates HERE, in the pod, not at the edge).
+      listen 443 ssl;
+      ssl_certificate     /etc/nginx/ssl/tls.crt;
+      ssl_certificate_key /etc/nginx/ssl/tls.key;
       root /usr/share/nginx/html;
       index index.html;
       location = /nginx-health { access_log off; return 200 'ok'; }

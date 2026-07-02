@@ -36,21 +36,23 @@ spec:
       containers:
         - name: nginx
           image: nginx:1.27-alpine
-          ports: [{ containerPort: 80 }]
+          ports: [{ containerPort: 80 }, { containerPort: 443 }]
           volumeMounts:
             - { name: web, mountPath: /usr/share/nginx/html }
             - { name: cfg, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf }
             - { name: appconfig, mountPath: /usr/share/nginx/html/config.json, subPath: config.json, readOnly: true }
+            - { name: tls, mountPath: /etc/nginx/ssl, readOnly: true }
           readinessProbe: { httpGet: { path: /nginx-health, port: 80 }, initialDelaySeconds: 5, periodSeconds: 10 }
           resources: { requests: { cpu: 25m, memory: 48Mi }, limits: { cpu: 200m, memory: 128Mi } }
       volumes:
         - { name: web, emptyDir: {} }
         - { name: cfg, configMap: { name: dashboard-nginx } }
         - { name: appconfig, configMap: { name: dashboard-config } }
+        - { name: tls, secret: { secretName: wildcard-tls } }
 ---
 apiVersion: v1
 kind: Service
 metadata: { name: dashboard, namespace: cometchat, labels: { app.kubernetes.io/name: dashboard } }
 spec:
   selector: { app.kubernetes.io/name: dashboard }
-  ports: [{ name: http, port: 80, targetPort: 80 }]
+  ports: [{ name: http, port: 80, targetPort: 80 }, { name: https, port: 443, targetPort: 443 }]

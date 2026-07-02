@@ -1,0 +1,100 @@
+# =============================================================================
+# Edge NodePort overlay — the north-south entry points for the HAProxy edge.
+#
+# HAProxy (edge VMs) does L4 SNI passthrough and forwards each facing host to a
+# FIXED NodePort here. These Services are ADDITIVE overlays: they select the SAME
+# pods as the app's primary ClusterIP Service (which east-west/CoreDNS still uses),
+# but expose :443 (the pod's nginx TLS sidecar) at a stable nodePort. TLS therefore
+# terminates in the pod, never at the edge.
+#
+# Each nodePort MUST match ansible/group_vars/haproxy.yml:
+#   chatapi 30443 · websocket 30444 · dashboard 30445 · mgmtapi 30446 ·
+#   analytics 30447 · extensions 30448 · seaweedfs 30449 · document-embed 30450 ·
+#   whiteboard 30451 · notificationscore 30452
+#
+# Internal-only services (metrics-pro, moderationservice, globalwebhooks,
+# service-search, visual-chat-builder, ai-agent-service) get NO NodePort — they are
+# reached east-west via CoreDNS split-horizon only, and have no public DNS.
+# =============================================================================
+---
+apiVersion: v1
+kind: Service
+metadata: { name: chatapi-edge, namespace: cometchat, labels: { app.kubernetes.io/part-of: cometchat-edge } }
+spec:
+  type: NodePort
+  selector: { app.kubernetes.io/name: chatapi }
+  ports: [{ name: https, port: 443, targetPort: 443, nodePort: 30443, protocol: TCP }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: websocket-edge, namespace: cometchat, labels: { app.kubernetes.io/part-of: cometchat-edge } }
+spec:
+  type: NodePort
+  selector: { app.kubernetes.io/name: websocket }
+  ports: [{ name: https, port: 443, targetPort: 443, nodePort: 30444, protocol: TCP }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: dashboard-edge, namespace: cometchat, labels: { app.kubernetes.io/part-of: cometchat-edge } }
+spec:
+  type: NodePort
+  selector: { app.kubernetes.io/name: dashboard }
+  ports: [{ name: https, port: 443, targetPort: 443, nodePort: 30445, protocol: TCP }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: mgmtapi-edge, namespace: cometchat, labels: { app.kubernetes.io/part-of: cometchat-edge } }
+spec:
+  type: NodePort
+  selector: { app.kubernetes.io/name: mgmtapi }
+  ports: [{ name: https, port: 443, targetPort: 443, nodePort: 30446, protocol: TCP }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: analytics-edge, namespace: cometchat, labels: { app.kubernetes.io/part-of: cometchat-edge } }
+spec:
+  type: NodePort
+  selector: { app.kubernetes.io/name: analytics }
+  ports: [{ name: https, port: 443, targetPort: 443, nodePort: 30447, protocol: TCP }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: extensions-edge, namespace: cometchat, labels: { app.kubernetes.io/part-of: cometchat-edge } }
+spec:
+  type: NodePort
+  selector: { app.kubernetes.io/name: extensions }
+  ports: [{ name: https, port: 443, targetPort: 443, nodePort: 30448, protocol: TCP }]
+---
+# S3 object store — targets the seaweedfs-edge nginx (TLS :443 -> filer:8333),
+# created in k8s/seaweedfs/45-edge-tls.yaml.
+apiVersion: v1
+kind: Service
+metadata: { name: seaweedfs-edge-np, namespace: cometchat, labels: { app.kubernetes.io/part-of: cometchat-edge } }
+spec:
+  type: NodePort
+  selector: { app: seaweedfs-edge }
+  ports: [{ name: https, port: 443, targetPort: 443, nodePort: 30449, protocol: TCP }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: document-embed-edge, namespace: cometchat, labels: { app.kubernetes.io/part-of: cometchat-edge } }
+spec:
+  type: NodePort
+  selector: { app: document-embed }
+  ports: [{ name: https, port: 443, targetPort: 443, nodePort: 30450, protocol: TCP }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: whiteboard-edge, namespace: cometchat, labels: { app.kubernetes.io/part-of: cometchat-edge } }
+spec:
+  type: NodePort
+  selector: { app: whiteboard }
+  ports: [{ name: https, port: 443, targetPort: 443, nodePort: 30451, protocol: TCP }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: notificationscore-edge, namespace: cometchat, labels: { app.kubernetes.io/part-of: cometchat-edge } }
+spec:
+  type: NodePort
+  selector: { app.kubernetes.io/name: notificationscore }
+  ports: [{ name: https, port: 443, targetPort: 443, nodePort: 30452, protocol: TCP }]
