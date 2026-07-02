@@ -1,6 +1,22 @@
 # Collaborative editors behind the extensions service:
 #   document-embed = CometChat-customised Etherpad 1.8.4 (:9001) — pads in mgmt MySQL (etherpad DB)
 #   whiteboard     = cracker0dks/whiteboard v1.0.0 (:9000) — stateless, accessToken "board"
+#
+# ⚠️ KNOWN-BLOCKED (non-core): document-embed does NOT come up yet. Its Etherpad image's entrypoint
+#   (/opt/etherpad-lite/entrypoint.sh) has a fragile startup chain. FULL FIX PATH traced live (2026-07-02):
+#     1. The wait connects as MySQL **root**, reading DB_HOST/DB_PORT + MYSQL_ROOT_PASSWORD (defaults
+#        127.0.0.1 / rootpass). So set on the etherpad container:
+#          DB_HOST=<mysql VM>  DB_PORT=3306  DB_NAME=etherpad  DB_USER=etherpaduser
+#          DB_PASS=<etherpaduser pw from document-embed-settings>   MYSQL_ROOT_PASSWORD=<mysql root pw>
+#        (root pw = same value mgmtapi uses as DB_PASSWORD; the entrypoint then self-creates the DB+user).
+#     2. Its mariadb client VERIFIES TLS and rejects MySQL 8's self-signed cert (ERROR 2026). Needs a
+#        client cnf that skips verification — mount at $HOME/.my.cnf (HOME=/home/etherpad):
+#          [client]\n  (the exact working ssl directive still TBD: skip-ssl / ssl=0 / ssl-verify-server-cert=0)
+#     3. RELAX the livenessProbe below (it kills the pod at 40s while the wait loops, causing CrashLoop +
+#        hammering MySQL until the node IP is max_connect_errors-blocked — run FLUSH HOSTS if that happens).
+#   TO PRODUCTIONIZE: have deploy.sh phase_editors create a `document-embed-dbenv` secret with the 6 vars
+#   above + this .my.cnf ConfigMap, add `envFrom` + the mount here, and relax/remove the liveness probe.
+#   The socat db-proxy sidecar (below) is only needed if the wait stays on 127.0.0.1.
 # The /v1/create APIs (document-onprem / whiteboard-onprem) are served by the EXTENSIONS service,
 # not these editors. These two only serve the editor iframes (document-embed-onprem / whiteboard-embed-onprem).
 # Images are pinned by digest from OUR ECR (mirrored from akamai Harbor — no VPN needed).
