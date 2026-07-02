@@ -397,6 +397,11 @@ phase_secrets() {
   # 2) secrets-from-rendered.py then creates every <svc>-env (+ *-config / calls-relay-envfile) k8s secret in
   #    the exact shape each app consumes.
   if [ -d "$SEC_APPS" ] && ls "$SEC_APPS"/*/.env >/dev/null 2>&1; then
+    # 0) normalize FIRST: repoint any stale datastore IPs to THIS cluster's data subnet + collapse
+    #    multi-line JSON env values. Prevents the two classes of bug we hit (v3->v4 IP drift; CHAT_DB
+    #    "Expected object, received string"). Idempotent; safe on a clean checkout.
+    log "normalize-app-secrets.py (datastore IPs -> data subnet ${SUBNET_DATA_CIDR:-?} + collapse multi-line JSON)…"
+    SUBNET_DATA_CIDR="${SUBNET_DATA_CIDR:-}" run python3 "$SCRIPTS/normalize-app-secrets.py" || warn "normalize-app-secrets had issues (non-fatal) — check secrets/apps/*/.env datastore IPs manually"
     if [ -f "$SEC_INFRA/cluster-creds.yml" ]; then
       log "sync-app-db-creds.py (fresh datastore creds → app secrets)…"
       run python3 "$SCRIPTS/sync-app-db-creds.py" || die "cred sync FAILED — app secrets would not match the datastores; aborting"
