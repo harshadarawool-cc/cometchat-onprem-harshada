@@ -9,17 +9,20 @@
   file: { path: /etc/rancher/rke2, state: directory, mode: "0755" }
 
 - name: Write server config
+  # secrets-encryption: true => Kubernetes Secrets are encrypted at rest in etcd
+  # (RKE2 manages the EncryptionConfiguration + AES-CBC provider). This is the
+  # etcd/secrets at-rest encryption required alongside the disk-level encryption.
   copy:
     dest: /etc/rancher/rke2/config.yaml
     mode: "0600"
-    content: |
-      token: {{ rke2_token }}
-      node-ip: {{ int_ip }}
-      node-name: {{ inventory_hostname }}
-      tls-san:
-        - {{ int_ip }}
-        - {{ edge_lb_ip }}
-        - {{ inventory_hostname }}
+    content: "{{ _rke2_server_config | to_nice_yaml(indent=2) }}"
+  vars:
+    _rke2_server_config:
+      token: "{{ rke2_token }}"
+      node-ip: "{{ int_ip }}"
+      node-name: "{{ inventory_hostname }}"
+      secrets-encryption: true
+      tls-san: "{{ [int_ip, inventory_hostname, '127.0.0.1'] + (edge_public_ips | default([])) }}"
   notify: restart rke2-server
 
 - name: Enable + start rke2-server

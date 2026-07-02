@@ -1,0 +1,57 @@
+---
+# =============================================================================
+# HAProxy edge — service map (SNI hostname -> per-service Kubernetes NodePort).
+# Consumed by roles/haproxy/templates/haproxy.cfg.j2.
+#
+# Model (see docs/HAPROXY-EDGE.md + K8S-NETWORKING-GUIDE §4A): HAProxy does L4
+# **SNI passthrough** (it does NOT terminate TLS). It inspects the TLS ClientHello,
+# matches req.ssl_sni against the rules below, and forwards the raw TCP stream to
+# the matching NodePort on the RKE2 agent nodes, where the pod's nginx sidecar
+# terminates the wildcard cert. Each `nodeport` MUST equal the NodePort set on the
+# corresponding facing k8s Service (k8s/*.yaml, k8s/apps/*.yaml).
+#
+# The token DOMAIN is replaced with edge_domain at render time (dots escaped for
+# the regex rules). Internal-only services (metrics-pro, moderationservice,
+# globalwebhooks, service-search, visual-chat-builder, ai-agent-service) are NOT
+# here — they have no public DNS and are reached east-west via CoreDNS only.
+# =============================================================================
+
+edge_domain: "cometchat-cluster-2.in"
+
+# Facing services, each on a fixed NodePort. `check` is an L4 TCP connect.
+haproxy_backends:
+  - name: chatapi          # REST API + client SDK (bare, per-app <appId>.*, +-internal)
+    nodeport: 30443
+    sni_regex: '(^|.*\.)(api|apiclient)-onprem(-internal)?\.DOMAIN$'
+  - name: websocket        # realtime (ws-onprem, websocket-onprem, per-app)
+    nodeport: 30444
+    sni_regex: '(^|.*\.)(ws|websocket)-onprem(-internal)?\.DOMAIN$'
+  - name: dashboard        # admin UI
+    nodeport: 30445
+    sni_exact: ['app.DOMAIN']
+  - name: mgmtapi          # management API
+    nodeport: 30446
+    sni_exact: ['apimgmt.DOMAIN']
+  - name: analytics        # analytics-api / metrics
+    nodeport: 30447
+    sni_exact: ['metrics-onprem.DOMAIN']
+  - name: seaweedfs        # S3 object store (media/data/files-onprem, per-app media)
+    nodeport: 30449
+    sni_regex: '(^|.*\.)(media|data|files)-onprem\.DOMAIN$'
+  - name: document-embed   # Etherpad editor iframe
+    nodeport: 30450
+    sni_exact: ['document-embed-onprem.DOMAIN']
+  - name: whiteboard       # whiteboard editor iframe
+    nodeport: 30451
+    sni_exact: ['whiteboard-embed-onprem.DOMAIN']
+  - name: notificationscore # push/email/sms
+    nodeport: 30452
+    sni_exact: ['notifications-onprem.DOMAIN']
+
+# DEFAULT backend — everything not matched above. extensions-onprem +
+# *.extensions-onprem + the per-extension feature hosts (stickers/polls/
+# link-preview/thumbnail-generator) + the document/whiteboard **API** hosts all
+# route to the one extensions Service.
+haproxy_default_backend:
+  name: extensions
+  nodeport: 30448

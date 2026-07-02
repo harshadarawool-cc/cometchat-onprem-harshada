@@ -1,0 +1,12 @@
+---
+# Edge — configure the 2 standalone HAProxy VMs for L4 SNI-passthrough routing to
+# the per-service Kubernetes NodePorts. Run this AFTER the RKE2 agents exist (the
+# config templates each backend from the rke2_agents inventory group) and after the
+# facing k8s Services + their NodePorts are applied. Idempotent: the config is
+# validated (`haproxy -c`) before it replaces the running one.
+- name: HAProxy edge
+  hosts: haproxy
+  become: true
+  gather_facts: false
+  roles:
+    - haproxy

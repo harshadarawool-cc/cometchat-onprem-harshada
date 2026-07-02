@@ -1,0 +1,31 @@
+---
+# Standalone HAProxy edge — installs + configures L4 SNI-passthrough routing to
+# the per-service Kubernetes NodePorts. See group_vars/haproxy.yml for the map.
+
+- name: Install haproxy
+  apt:
+    name: haproxy
+    state: present
+    update_cache: true
+  register: _hap_install
+  retries: 3
+  delay: 10
+  until: _hap_install is succeeded
+
+- name: Deploy haproxy.cfg (validated before it is written)
+  template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: "0644"
+    # refuse to install a broken config (keeps the running edge up)
+    validate: "haproxy -c -f %s"
+  notify: restart haproxy
+
+- name: Enable + start haproxy
+  systemd:
+    name: haproxy
+    enabled: true
+    state: started
+    daemon_reload: true

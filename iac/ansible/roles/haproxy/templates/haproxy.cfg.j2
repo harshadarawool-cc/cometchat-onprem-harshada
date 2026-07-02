@@ -1,0 +1,66 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# MANAGED BY ANSIBLE (roles/haproxy) — do not edit by hand.
+# Edge L4 SNI-passthrough router: TLS terminates at the pod nginx sidecar, NOT here.
+{% set dre = edge_domain | replace('.', '\\.') %}
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    maxconn 40000
+    tune.ssl.default-dh-param 2048
+    daemon
+
+defaults
+    mode                    tcp
+    log                     global
+    option                  tcplog
+    option                  dontlognull
+    timeout connect         10s
+    timeout client          1h
+    timeout server          1h
+    timeout tunnel          1h
+    retries                 3
+
+# ---- Stats / health (HTTP, reachable only from IAP per the firewall) ----
+frontend stats
+    bind *:8404
+    mode http
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+    stats show-legends
+    stats show-node
+
+# ---- Public HTTPS edge: inspect SNI, route to the per-service NodePort ----
+frontend ft_https
+    bind *:443
+    mode tcp
+    tcp-request inspect-delay 5s
+    # only route once we've seen a full TLS ClientHello (so req.ssl_sni is populated)
+    tcp-request content accept if { req_ssl_hello_type 1 }
+{% for b in haproxy_backends %}
+{%   if b.sni_regex is defined %}
+    use_backend bk_{{ b.name }} if { req.ssl_sni -m reg -i {{ b.sni_regex | replace('DOMAIN', dre) }} }
+{%   endif %}
+{%   if b.sni_exact is defined %}
+{%     for h in b.sni_exact %}
+    use_backend bk_{{ b.name }} if { req.ssl_sni -m str -i {{ h | replace('DOMAIN', edge_domain) }} }
+{%     endfor %}
+{%   endif %}
+{% endfor %}
+    default_backend bk_{{ haproxy_default_backend.name }}
+
+{% for b in haproxy_backends %}
+backend bk_{{ b.name }}
+    mode tcp
+    balance roundrobin
+{% for h in groups['rke2_agents'] | sort %}
+    server {{ h }} {{ hostvars[h].int_ip }}:{{ b.nodeport }} check
+{% endfor %}
+
+{% endfor %}
+backend bk_{{ haproxy_default_backend.name }}
+    mode tcp
+    balance roundrobin
+{% for h in groups['rke2_agents'] | sort %}
+    server {{ h }} {{ hostvars[h].int_ip }}:{{ haproxy_default_backend.nodeport }} check
+{% endfor %}

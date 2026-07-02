@@ -27,5 +27,7 @@ kafka_brokers: "10.23.10.31:9092"
 tidb_host: 10.23.10.51
 mysql_host: 10.23.10.41
 
-# RKE2 — v3 edge LB (deploy.sh phase_inventory also refreshes this from terraform output).
-edge_lb_ip: "34.47.139.160"
+# Edge = 2 HAProxy VMs (public IPs). deploy.sh phase_inventory refreshes this list from
+# `terraform output -json haproxy_ips`. Used as extra tls-san entries on the RKE2 API cert
+# and (informationally) by the haproxy role. DNS round-robins facing hosts across these IPs.
+edge_public_ips: []
