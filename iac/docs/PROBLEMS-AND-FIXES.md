@@ -4,6 +4,15 @@
 > root cause, the fix, and **where the fix is baked in** so it never bites again.
 > The automation (`deploy/deploy.sh`) encodes every one of these — this file is the
 > "why" behind the script. Read this before changing any role/template.
+
+> ### HAProxy re-architecture addendum (this repo)
+> This build replaces the GCP L4 LB with **2 HAProxy VMs (SNI passthrough) + per-pod TLS**. The edge-,
+> DNS-, and object-store-specific problems/fixes now live in the ★ docs, which supersede the LB-era
+> networking sections below: **[NETWORKING](NETWORKING.md)** (CORS/503 triage, per-pod TLS,
+> split-horizon), **[HAPROXY-EDGE](HAPROXY-EDGE.md)** (SNI→NodePort, add-a-service),
+> **[SEAWEEDFS](SEAWEEDFS.md)** (SigV4 4.37 validation + 3.80 fallback, media-onprem dual path),
+> **[ENCRYPTION-AT-REST](ENCRYPTION-AT-REST.md)**, **[MIGRATION-FROM-LB](MIGRATION-FROM-LB.md)**. The
+> datastore / secrets / seeding / image fixes below are UNCHANGED and still authoritative.
 >
 > Project `onprem-499712` · region `asia-south1-a` · VPC `cometchat-onprem-vpc`.
 > Coexists with the OLD (kept, stopped) `cometchat-ds-*` / `cometchat-gke` infra — **never touch it.**

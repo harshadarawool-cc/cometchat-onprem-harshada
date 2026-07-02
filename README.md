@@ -1,30 +1,34 @@
-# CometChat on-prem — GCP RKE2 (one-click)
+# CometChat on-prem — GCP RKE2, **HAProxy edge** (one-click)
 
 Reproducible, zero → fully-working CometChat backend on GCP + RKE2. One command rebuilds the entire
-cluster (VMs, datastores, seed data, all app services, ingress, TLS) from scratch.
+cluster (VMs, datastores, seed data, all 16 app services, the object store, TLS, DNS) from scratch.
+
+**Edge model:** 2 standalone **HAProxy VMs** do L4 **SNI passthrough** → per-service NodePorts; TLS
+terminates at a **per-pod nginx sidecar** (never at the edge). No cloud LB, no central ingress. Full
+picture: **[iac/docs/ARCHITECTURE.md](iac/docs/ARCHITECTURE.md)**.
 
 ```
 .
-├── dumps/          DB seed data — 4 MySQL .sql (pulsecustomerdb, onprem-features, metrics, analytics)
-│                   + Mongo JSON (vcb template, moderation rules, notification templates)
+├── dumps/          DB seed data — 4 MySQL .sql + Mongo JSON (vcb / moderation / notification seeds)
 └── iac/            all Infrastructure-as-Code — START HERE: iac/README.md
     ├── deploy/     deploy.sh (the orchestrator) + customer.conf (the one file you edit)
-    ├── terraform/  VPC, firewall, edge LB, 25 VMs (mongo/redis/kafka/mysql/tidb/rke2)
-    ├── ansible/    datastore provisioning + data seeding
-    ├── k8s/        every k8s manifest (apps, ingress, coredns, cert-manager, seaweedfs, …)
-    ├── scripts/    credgen, cred-sync, secret-render, node-app deploy, …
+    ├── terraform/  VPC, firewall, 2 HAProxy edge VMs, 25 datastore/RKE2 VMs, encrypted disks (CMEK opt)
+    ├── ansible/    datastore provisioning + data seeding + the HAProxy role
+    ├── k8s/        every k8s manifest (apps, edge-nodeports, coredns-direct, cert-manager, seaweedfs, …)
+    ├── scripts/    credgen, cred-sync, secret-render, node-app deploy, s3-identity collect, …
     ├── secrets/    ALL credentials (gitignored, per-app) — see iac/secrets/README.md
-    └── docs/       architecture + the problem→fix journal
+    ├── vendor/     akamai-seaweedfs @ 5232cca (upstream object-store package, for provenance)
+    └── docs/       ★ ARCHITECTURE / NETWORKING / HAPROXY-EDGE / INTERNAL-CONNECTIONS / SEAWEEDFS / …
 ```
 
 ## Deploy
 ```bash
 cd iac/deploy
-# edit customer.conf (project / zone / domain / sizing / LICENCE_FILE / R53 zone)
+# edit customer.conf (project / zone / domain / sizing / LICENCE_FILE / R53 zone / HAPROXY_COUNT / DISK_KMS_KEY)
 ./deploy.sh config && ./deploy.sh all        # ~60–90 min, idempotent
-cd .. && ./dns-point.sh                       # Route53 *.<domain> → new edge LB IP
+cd .. && ./dns-point.sh                       # Route53 *.<domain> → round-robin across the 2 HAProxy IPs
 ```
-Full runbook, phase list, and design notes: **[iac/README.md](iac/README.md)**.
+Full runbook + verification: **[iac/docs/DEPLOYMENT.md](iac/docs/DEPLOYMENT.md)** · design notes: **[iac/README.md](iac/README.md)**.
 
 ## Principles
 - **No app patching.** Every image runs as-is, pinned by digest. Fixes live in networking / config /

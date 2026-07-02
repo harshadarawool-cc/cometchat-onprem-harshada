@@ -22,14 +22,15 @@ iac/
 ├── deploy/
 │   ├── deploy.sh          THE orchestrator (phases below). Start here.
 │   └── customer.conf      the ONE file you edit per cluster (project/domain/sizing/licence/R53)
-├── terraform/             infra: VPC, subnets, firewall, 25 VMs (mongo/redis/kafka/mysql/tidb/rke2), edge LB
-├── ansible/               datastore provisioning + data seeding
+├── terraform/             infra: VPC, subnets, firewall, 25 datastore/RKE2 VMs + 2 HAProxy edge VMs, encrypted disks
+├── ansible/               datastore provisioning + data seeding + the HAProxy edge role
 │   ├── datastores.yml     mongo rs0 / redis sentinel / kafka(+topics) / tidb / mysql  (roles/)
+│   ├── haproxy.yml        renders + validates haproxy.cfg (SNI → NodePorts) on the 2 edge VMs
 │   ├── restore-*.yml      DB dumps + mongo seeds + region-hash sync (from ../dumps)
 │   └── fix-mongo-app-users.yml   creates the per-app mongo users (admin/extadmin/webhookuser)
-├── k8s/                   every k8s manifest (chatapi, mgmtapi, apps/, node apps, ingress, coredns HCC,
-│   │                      cert-manager, seaweedfs/, dashboard, jobs, sidecar TLS)
-│   └── seaweedfs/         the object store (masters/volumes/filer/S3 + cometchatFS console)
+├── k8s/                   every k8s manifest (chatapi, mgmtapi, apps/, node apps, edge-nodeports,
+│   │                      coredns-direct, cert-manager, seaweedfs/, dashboard, jobs, sidecar TLS)
+│   └── seaweedfs/         the object store (masters/volumes/filer/S3 + cometchatFS console + pod-TLS edge)
 ├── scripts/               gen-cluster-creds.sh, sync-app-db-creds.py, secrets-from-rendered.py,
 │   │                      deploy-node-apps.py, apply-region.py, … (archive/ = one-time/superseded)
 ├── secrets/               ALL credentials (gitignored) — see secrets/README.md
@@ -39,11 +40,12 @@ iac/
 
 ## Phases (`./deploy.sh <phase>`)
 `preflight · infra · inventory · datastores-wait · credgen · datastores · rke2 · seed ·`
-`secrets · support · storage · editors · apps · node-apps · coredns · ingress · certs · verify · status`
+`secrets · support · storage · editors · apps · node-apps · coredns · edge · haproxy · certs · verify · status`
 
-**Order matters** (encoded in `all`): VMs → datastores(+kafka topics) → **credgen** (fresh DB passwords) →
-datastores provision with them → seed (dumps + mongo/vcb/moderation) → **then** apps → node-apps →
-coredns (split-horizon, per-FQDN east-west) → ingress → certs (Let's Encrypt) → verify.
+**Order matters** (encoded in `all`): VMs (incl. 2 HAProxy) → datastores(+kafka topics) → **credgen** (fresh
+DB passwords) → datastores provision with them → seed (dumps + mongo/vcb/moderation) → **then** apps →
+node-apps → coredns (direct-to-Service split-horizon) → **edge** (NodePort overlay) → **haproxy** (SNI
+config) → certs (Let's Encrypt) → verify.
 
 ## Credentials (fresh per cluster, auto-synced)
 `credgen` generates `secrets/infra/cluster-creds.yml` (6 datastore passwords). deploy.sh passes it to
@@ -52,6 +54,8 @@ and the application secrets get **identical, brand-new** passwords. Ansible **fa
 missing. To rotate: delete `cluster-creds.yml`, re-run `datastores` + `secrets`. See `secrets/README.md`.
 
 ## Networking (data-residency)
-Per-pod nginx TLS sidecars terminate the wildcard cert on `:443`; CoreDNS split-horizon rewrites every
-on-prem FQDN to its in-cluster Service, so east-west traffic is verified HTTPS that never leaves the VPC.
-Storage hosts (`media/data/files-onprem`) fall to the internal ingress. See `docs/`.
+2 HAProxy VMs do L4 **SNI passthrough** → per-service NodePorts (north-south); per-pod nginx TLS sidecars
+terminate the wildcard cert on `:443` (TLS never terminates at the edge); CoreDNS split-horizon rewrites
+every on-prem FQDN **direct to its in-cluster Service**, so east-west traffic is verified HTTPS that never
+leaves the VPC. Storage hosts (`media/data/files-onprem`) route to the `seaweedfs-edge` pod-TLS front. Full
+detail: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** + the ★ docs (**[docs/00-INDEX.md](docs/00-INDEX.md)**).
