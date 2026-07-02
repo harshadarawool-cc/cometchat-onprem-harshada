@@ -517,27 +517,87 @@ phase_node_apps() {
 #   Reconcile-safe (coredns-custom ConfigMap). See k8s/coredns-split-horizon.yaml.
 # =============================================================================
 phase_coredns() {
-  step "coredns split-horizon (per-pod TLS, DIRECT-to-Service) — every on-prem FQDN -> its Service"
+  step "coredns split-horizon (per-pod TLS, DIRECT-to-Service via HelmChartConfig)"
   open_tunnel
-  local dom_re="${DOMAIN//./\\.}"                  # escape dots for the CoreDNS regex
-  # HAProxy edge model: NO central ingress. North-south is HAProxy SNI -> per-service NodePort ->
-  # pod nginx sidecar :443. East-west is CoreDNS rewriting each customer FQDN STRAIGHT to its backing
-  # Service (chatapi.cometchat.svc, …) with `answer auto` (keeps {appId} in Host); the rewritten
-  # cluster.local query is resolved by re-forwarding to CoreDNS's own kubernetes plugin. Data-tier hosts
-  # (media/data/files-onprem) go to seaweedfs-edge (:443 TLS). So NO ingress-internal-svc / catch-all.
-  # Substitute __DOMAIN_RE__ FIRST (it contains __DOMAIN__ as a substring), then __DOMAIN__.
-  sed -e "s|__DOMAIN_RE__|$dom_re|g" -e "s|__DOMAIN__|$DOMAIN|g" "$K8S/coredns-direct.yaml" > /tmp/cc-coredns-direct.yaml
-  if ! grep -q "rewrite name exact api-onprem.$DOMAIN" /tmp/cc-coredns-direct.yaml 2>/dev/null; then
-    warn "coredns-direct render produced no rewrites — aborting coredns (check k8s/coredns-direct.yaml)"; return 1
-  fi
-  kc apply -f /tmp/cc-coredns-direct.yaml >/dev/null \
-    && ok "applied coredns-custom (per-FQDN DIRECT-to-Service split-horizon; data-tier -> seaweedfs-edge:443)" \
-    || { warn "coredns-custom apply failed"; return 1; }
-  # coredns-custom is imported by rke2-coredns on reload; bounce it to pick up promptly + confirm healthy.
-  kc -n kube-system rollout restart deploy/rke2-coredns >/dev/null 2>&1 || true
-  kc -n kube-system rollout status deploy/rke2-coredns --timeout=120s >/dev/null 2>&1 \
-    && ok "CoreDNS healthy after direct split-horizon reload" \
-    || err "CoreDNS NOT healthy after reload — check 'kc -n kube-system get pods -l k8s-app=kube-dns' + logs; a malformed coredns-custom .server CrashLoops it"
+  # WHY a HelmChartConfig (not the coredns-custom ConfigMap): RKE2's rke2-coredns does NOT mount or
+  # `import` the coredns-custom ConfigMap (verified: its Corefile has no import, the pod mounts only
+  # config-volume). So a coredns-custom .server is INERT here. The HCC feeds rewrites to the chart values,
+  # and the helm-controller renders them straight into the Corefile (durable across reconciles).
+  # Each on-prem FQDN -> its in-cluster Service (pod nginx sidecar terminates wildcard-tls on :443);
+  # media/data/files -> seaweedfs-edge; `answer auto` keeps the {appId} in Host. NO ingress catch-all.
+  DOMAIN="$DOMAIN" NS="$NS" python3 - > /tmp/cc-coredns-hcc.yaml <<'PY'
+import os
+DOMAIN=os.environ["DOMAIN"]; DRE=DOMAIN.replace(".", r"\."); NS=os.environ["NS"]
+def svc(s): return f"{s}.{NS}.svc.cluster.local"
+WILD_INT=[("api-onprem","chatapi"),("apiclient-onprem","chatapi"),("websocket-onprem","websocket")]  # +-internal twin
+WILD=[("extensions-onprem","extensions"),("media-onprem","seaweedfs-edge"),("ai-agent-service","ai-agent-service")]
+EXACT=[("ws-onprem","websocket"),("rule-onprem","moderationservice"),("webhooks-onprem","globalwebhooks"),
+ ("notifications-onprem","notificationscore"),("metrics-onprem","analytics"),("metrics-pro-onprem","metrics-pro"),
+ ("internal-search-onprem","service-search"),("internal-vcb-onprem","visual-chat-builder"),
+ ("internal-apivcb-onprem","visual-chat-builder"),("stickers-onprem","extensions"),("polls-onprem","extensions"),
+ ("link-preview-onprem","extensions"),("thumbnail-generator-onprem","extensions"),("document-onprem","extensions"),
+ ("whiteboard-onprem","extensions"),("document-embed-onprem","document-embed"),("whiteboard-embed-onprem","whiteboard"),
+ ("apimgmt","mgmtapi"),("app","dashboard"),("test.antivirus","clamav"),("data-onprem","seaweedfs-edge"),
+ ("files-onprem","seaweedfs-edge")]
+I="          "
+def rgx(pat,t): return [f"{I}- name: rewrite",f"{I}  parameters: stop",f"{I}  configBlock: |-",f"{I}    name regex {pat} {t}",f"{I}    answer auto"]
+def exa(host,t): return [f"{I}- name: rewrite",f"{I}  parameters: stop name exact {host} {t}"]
+R=[]
+for l,s in WILD_INT:
+    t=svc(s); R+=rgx(f"(.*)\\.{l}\\.{DRE}",t)+exa(f"{l}.{DOMAIN}",t)+rgx(f"(.*)\\.{l}-internal\\.{DRE}",t)+exa(f"{l}-internal.{DOMAIN}",t)
+for l,s in WILD:  t=svc(s); R+=rgx(f"(.*)\\.{l}\\.{DRE}",t)+exa(f"{l}.{DOMAIN}",t)
+for l,s in EXACT: R+=exa(f"{l}.{DOMAIN}",svc(s))
+for h in ["api.cometchat.com","apiclient-onprem.cometchat.com"]: R+=exa(h,svc("chatapi"))  # SaaS fallback -> in-cluster
+print("""apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-coredns
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    servers:
+      - zones:
+          - zone: .
+        port: 53
+        plugins:
+          - name: errors
+          - name: health
+            configBlock: |-
+              lameduck 10s
+          - name: ready
+%s
+          - name: kubernetes
+            parameters: cluster.local in-addr.arpa ip6.arpa
+            configBlock: |-
+              pods insecure
+              fallthrough in-addr.arpa ip6.arpa
+              ttl 30
+          - name: prometheus
+            parameters: 0.0.0.0:9153
+          - name: forward
+            parameters: . /etc/resolv.conf
+          - name: cache
+            parameters: 30
+          - name: loop
+          - name: reload
+          - name: loadbalance
+""" % "\n".join(R))
+PY
+  grep -q "api-onprem.$DOMAIN" /tmp/cc-coredns-hcc.yaml || { warn "coredns HCC render empty — aborting (check phase_coredns)"; return 1; }
+  kc apply -f /tmp/cc-coredns-hcc.yaml >/dev/null \
+    && ok "applied CoreDNS HelmChartConfig (per-FQDN direct-to-Service; media/data/files -> seaweedfs-edge)" \
+    || { warn "coredns HCC apply failed"; return 1; }
+  # helm-controller re-renders the Corefile from the HCC (~10-90s); wait until it carries a rewrite.
+  local i ok_rw=""
+  for i in $(seq 1 24); do
+    kc -n kube-system get cm rke2-coredns-rke2-coredns -o jsonpath='{.data.Corefile}' 2>/dev/null | grep -q "api-onprem.$DOMAIN" && { ok_rw=1; break; }; sleep 5
+  done
+  [ -n "$ok_rw" ] && ok "Corefile carries the split-horizon rewrites" \
+    || warn "Corefile did NOT pick up rewrites yet (helm-controller slow? kc -n kube-system get cm rke2-coredns-rke2-coredns -o jsonpath='{.data.Corefile}')"
+  # confirm CoreDNS healthy after reload — the deployment is rke2-coredns-rke2-coredns (NOT rke2-coredns).
+  kc -n kube-system rollout status deploy/rke2-coredns-rke2-coredns --timeout=120s >/dev/null 2>&1 \
+    && ok "CoreDNS healthy after split-horizon reload" \
+    || warn "CoreDNS rollout not confirmed in 120s — check 'kc -n kube-system get pods -l k8s-app=kube-dns'"
 }
 
 # =============================================================================

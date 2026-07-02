@@ -30,4 +30,4 @@ mysql_host: 10.24.10.41
 # Edge = 2 HAProxy VMs (public IPs). deploy.sh phase_inventory refreshes this list from
 # `terraform output -json haproxy_ips`. Used as extra tls-san entries on the RKE2 API cert
 # and (informationally) by the haproxy role. DNS round-robins facing hosts across these IPs.
-edge_public_ips: []
+edge_public_ips: ["35.200.198.194", "8.231.87.107"]
