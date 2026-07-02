@@ -174,9 +174,13 @@ phase_manifests() {
   kc -n "$NS" rollout status sts/seaweedfs-filer  --timeout=240s || warn "filer not ready yet (check seaweedfs-sse-kek exists)"
   kc apply -f "$HERE/40-cometchatfs.yaml"       # console (needs cometchatfs-env)
   kc -n "$NS" rollout status deploy/cometchatfs --timeout=180s || warn "cometchatfs not ready yet"
-  kc apply -f "$HERE/35-s3-service.yaml"        # the `seaweedfs` alias -> component=filer (apps hardcode it)
-  kc apply -f "$HERE/50-ingress.yaml"           # OUR Ingress (console + s3-onprem); media/data via main ingress
-  ok "manifests applied (masters/volumes/filer/console + seaweedfs alias + Ingress)"
+  kc apply -f "$HERE/35-s3-service.yaml"        # the `seaweedfs` alias -> component=filer (apps hardcode it, in-cluster HTTP :8333)
+  kc apply -f "$HERE/45-edge-tls.yaml"          # pod-TLS S3 edge (:443 -> filer:8333) — media-onprem north+south
+  kc -n "$NS" rollout status deploy/seaweedfs-edge --timeout=120s || warn "seaweedfs-edge not ready yet"
+  # NOTE: HAProxy edge model — media/data/files-onprem reach seaweedfs-edge via HAProxy SNI (nodePort
+  # 30449, k8s/edge-nodeports.yaml) north-south + CoreDNS -> seaweedfs-edge.svc east-west. No Ingress.
+  # The console (storage-onprem) stays INTERNAL — reach it via: kubectl -n cometchat port-forward svc/cometchatfs 3300
+  ok "manifests applied (masters/volumes/filer/console + seaweedfs alias + pod-TLS S3 edge)"
 }
 
 phase_buckets() {  # ensure the 5 buckets exist (idempotent; via `weed shell` — internal, no DNS/cert needed).
@@ -214,7 +218,7 @@ phase_status() {
 phase_destroy() {  # remove ONLY this stack's objects — never the shared namespace
   ensure_tunnel
   kc -n "$NS" delete job cometchatfs-seed --ignore-not-found
-  kc -n "$NS" delete -f "$HERE/50-ingress.yaml" -f "$HERE/40-cometchatfs.yaml" \
+  kc -n "$NS" delete -f "$HERE/45-edge-tls.yaml" -f "$HERE/40-cometchatfs.yaml" \
         -f "$HERE/30-filer-s3.yaml" -f "$HERE/20-volume.yaml" -f "$HERE/10-master.yaml" --ignore-not-found
   kc -n "$NS" delete pvc -l app=seaweedfs --ignore-not-found
   ok "seaweedfs/cometchatfs objects deleted from $NS (namespace + app secrets + SSE-KEK left intact)"

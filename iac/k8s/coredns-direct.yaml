@@ -89,11 +89,15 @@ data:
         rewrite name exact document-embed-onprem.__DOMAIN__ document-embed.cometchat.svc.cluster.local
         rewrite name exact whiteboard-embed-onprem.__DOMAIN__ whiteboard.cometchat.svc.cluster.local
 
-        # ---- data tier (Service seaweedfs:8333 in ns cometchat — NOT seaweedfs-edge) ---------
-        rewrite name regex (.*)\.media-onprem\.__DOMAIN_RE__ seaweedfs.cometchat.svc.cluster.local answer auto
-        rewrite name exact media-onprem.__DOMAIN__ seaweedfs.cometchat.svc.cluster.local
-        rewrite name exact data-onprem.__DOMAIN__ seaweedfs.cometchat.svc.cluster.local
-        rewrite name exact files-onprem.__DOMAIN__ seaweedfs.cometchat.svc.cluster.local
+        # ---- data tier -> seaweedfs-edge (pod-TLS :443 -> filer:8333). East-west uses
+        #      https://media-onprem (chatapi SECURED_AWS_ENDPOINT), so it MUST resolve to the
+        #      TLS edge, not the plain-HTTP filer alias (:8333). North-south is the same edge via
+        #      HAProxy SNI -> nodePort 30449. (The `seaweedfs` :8333 alias is still used by
+        #      chatapi's GENERIC http driver at http://seaweedfs.cometchat:8333 — not these hosts.)
+        rewrite name regex (.*)\.media-onprem\.__DOMAIN_RE__ seaweedfs-edge.cometchat.svc.cluster.local answer auto
+        rewrite name exact media-onprem.__DOMAIN__ seaweedfs-edge.cometchat.svc.cluster.local
+        rewrite name exact data-onprem.__DOMAIN__ seaweedfs-edge.cometchat.svc.cluster.local
+        rewrite name exact files-onprem.__DOMAIN__ seaweedfs-edge.cometchat.svc.cluster.local
 
         # ---- HTTP-only (answer auto keeps appId, but target pod stays :80 — NO TLS) ----------
         rewrite name regex (.*)\.ai-agent-service\.__DOMAIN_RE__ ai-agent-service.cometchat.svc.cluster.local answer auto
