@@ -35,27 +35,40 @@ Or staged:
 ./deploy.sh app-all         # APP phase (gated): secrets → … → edge → haproxy → certs → verify
 ```
 
-## Phase order (encoded in `all`)
+## Phase order (encoded in `all`) — a dependency chain
 
 ```
 preflight → infra → inventory → datastores-wait → credgen → datastores → rke2 → seed →
-secrets → support → storage → editors → apps → node-apps → coredns → edge → haproxy → certs →
+secrets → certs → coredns → support → storage → editors → apps → node-apps → edge → haproxy →
 storage-seed → verify
 ```
 
+**Why this exact order (the "apps come up healthy" rule):** an app must not start until everything it needs
+at boot already exists —
+1. **certs before apps** — the per-pod nginx sidecars load `wildcard-tls` **at startup**, so the *real*
+   Let's Encrypt cert must be issued first (else east-west HTTPS verifies against the self-signed bootstrap
+   cert `phase_secrets` created as a fallback).
+2. **coredns before apps** — apps resolve each other by on-prem FQDN at boot (chatapi → `rule-onprem`,
+   `notifications-onprem`, `media-onprem`, …). Split-horizon DNS must be live first, or those calls fail.
+3. **backends before apps** — `support` (OpenSearch + es-indexes), `storage` (SeaweedFS + `seaweedfs-edge`),
+   `editors` (etherpad DB) must exist before the apps that depend on them (service-search, chatapi media,
+   document-embed).
+
+Phase notes:
 - **infra** — terraform: VPC, firewall, 25 datastore/RKE2 VMs + **2 HAProxy VMs** (+ 2 public IPs), encrypted disks.
 - **inventory** — reads `terraform output haproxy_ips` → writes `edge_public_ips` into ansible group_vars.
-- **credgen** — fresh per-cluster datastore passwords (synced into DBs *and* app secrets).
-- **datastores** — Mongo/Redis/Kafka(+31 topics)/TiDB/MySQL provisioned via ansible.
+- **credgen** — fresh per-cluster datastore passwords (synced into DBs *and* app secrets). [CREDENTIALS-FLOW](CREDENTIALS-FLOW.md)
+- **datastores** — Mongo/Redis/Kafka(+topics)/TiDB/MySQL provisioned via ansible.
 - **rke2** — 1 server (`secrets-encryption: true`) + 3 agents; kubeconfig via IAP tunnel.
-- **seed** — MySQL dumps + Mongo/VCB/moderation seeds + region hash.
-- **secrets/support/storage/editors/apps/node-apps** — app secrets, OpenSearch/Ollama, SeaweedFS,
-  etherpad DB, curated app manifests, node-only apps (websocket/moderation/vcb/ai-agent + workers).
+- **seed** — MySQL dumps + Mongo/VCB/moderation seeds + Mongo app users. [SEEDING](SEEDING.md)
+- **secrets** — app `.env`/config secrets, ECR pull secrets, JWT keys, **bootstrap self-signed wildcard-tls**.
+- **certs** — cert-manager + Let's Encrypt wildcard (Route53 DNS-01) → replaces `wildcard-tls` with the real cert.
 - **coredns** — applies `coredns-direct.yaml` (per-FQDN direct-to-Service split-horizon).
+- **support/storage/editors** — OpenSearch(+es-indexes)/Ollama/Mailpit, SeaweedFS(+edge), etherpad DB.
+- **apps/node-apps** — curated app manifests + node-only apps (websocket/moderation/vcb/ai-agent + workers).
 - **edge** — applies `edge-nodeports.yaml` (facing `:443` → fixed NodePorts).
 - **haproxy** — `ansible haproxy.yml` renders + validates `haproxy.cfg` on both edge VMs.
-- **certs** — cert-manager + Let's Encrypt wildcard (Route53 DNS-01) → `wildcard-tls`.
-- **storage-seed** — LATE SeaweedFS public-bucket assets + ACLs (needs DNS + cert live).
+- **storage-seed** — LATE SeaweedFS public-bucket assets + ACLs (signs against `media-onprem`; needs certs+coredns).
 - **verify** — datastores healthy, every `EXPECTED_WORKLOADS` Ready, split-horizon DNS correct.
 
 ## Verify (end-to-end)

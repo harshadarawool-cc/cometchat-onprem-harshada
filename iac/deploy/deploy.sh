@@ -9,12 +9,13 @@
 #   USAGE
 #     ./deploy.sh                 # INFRA rebuild: preflight -> terraform -> datastores
 #                                 #   (+ kafka topics) -> rke2 -> data seed   [the one-click]
-#     ./deploy.sh app-all         # APP phase: secrets -> support -> storage -> editors ->
-#                                 #   apps -> node-apps -> coredns(split-horizon) -> edge(NodePorts)
-#                                 #   -> haproxy(SNI edge) -> certs(Let's Encrypt) -> verify (gated)
+#     ./deploy.sh app-all         # APP phase (DEPENDENCY order — apps start only once their prereqs exist):
+#                                 #   secrets -> certs(real wildcard-tls) -> coredns(east-west DNS) ->
+#                                 #   support -> storage -> editors -> apps -> node-apps ->
+#                                 #   edge(NodePorts) -> haproxy(SNI) -> storage-seed(LATE) -> verify (gated)
 #     ./deploy.sh all             # infra + apps end-to-end — EVERYTHING, all services
-#                                 #   ORDER: VMs(+HAProxy) -> datastores(+kafka topics) -> seed(ALL
-#                                 #   dumps + seeds) -> apps -> edge NodePorts -> HAProxy -> certs
+#                                 #   ORDER: VMs(+HAProxy) -> datastores(+kafka topics) -> seed(dumps+seeds)
+#                                 #   -> secrets -> certs -> coredns -> backends -> apps -> edge -> object seed
 #     ./deploy.sh <phase>         # run ONE phase (see PHASES below)
 #     ./deploy.sh status          # show HAProxy edge IPs, nodes, datastore health
 #     ./deploy.sh --help
@@ -25,9 +26,9 @@
 #
 #   PHASES (run individually):
 #     preflight datastores-wait infra inventory datastores rke2 seed
-#     secrets support storage apps node-apps coredns edge haproxy certs verify status
+#     secrets certs coredns support storage editors apps node-apps edge haproxy storage-seed verify status
 #     storage   (consolidated HA SeaweedFS + cometchatFS console — the ONE object store,
-#                ns cometchat; now part of app-all/all, between support and apps)
+#                ns cometchat; in app-all/all AFTER coredns and BEFORE apps, so chatapi finds media)
 #
 #   Requires (preflight checks these): gcloud (auth + project), terraform, ansible,
 #   kubectl, jq, openssl, python3 — and for the app phase: aws (profile `staging`).
@@ -736,14 +737,26 @@ main() {
       ok "Datastores + Kafka topics + RKE2 + seed complete."
       ok "Next (when ECR + licence + secrets/apps are ready):  ./deploy.sh app-all"
       ;;
-    app-all)          # the gated APP phase — EVERYTHING app-side, in order
-      phase_secrets; phase_support; phase_storage; phase_editors; phase_apps; phase_node_apps; phase_coredns; phase_edge; phase_haproxy; phase_certs; phase_storage_seed
+    app-all)          # the gated APP phase — EVERYTHING app-side, in DEPENDENCY order
+      # ORDERING RULE (why apps come up healthy): an app must not start until its prerequisites exist —
+      #   (1) real wildcard-tls   [phase_certs] : the pod nginx sidecars load the cert at startup, so the
+      #        REAL cert must be in place BEFORE apps (else east-west HTTPS verifies against the self-signed
+      #        bootstrap cert). phase_secrets pre-creates a self-signed wildcard-tls as a fallback.
+      #   (2) east-west DNS        [phase_coredns]: apps resolve each other by on-prem FQDN at boot
+      #        (chatapi -> rule/notifications/webhooks/media-onprem). Split-horizon MUST be live BEFORE apps.
+      #   (3) backends up          [support/storage/editors]: opensearch+es-indexes (search), seaweedfs
+      #        (chatapi media), etherpad DB (document-embed) exist before the apps that need them.
+      # Only THEN apps/node-apps; then the north-south edge (NodePorts+HAProxy); then the LATE object seed.
+      phase_secrets; phase_certs; phase_coredns; phase_support; phase_storage; phase_editors; \
+        phase_apps; phase_node_apps; phase_edge; phase_haproxy; phase_storage_seed
       step "DONE — app phase applied"; phase_verify ;;
     all)              # the true one-click: zero -> fully-working, all services
       phase_preflight; phase_infra; phase_inventory; phase_datastores_wait
       phase_credgen
       phase_datastores; phase_rke2; phase_seed
-      phase_secrets; phase_support; phase_storage; phase_editors; phase_apps; phase_node_apps; phase_coredns; phase_edge; phase_haproxy; phase_certs; phase_storage_seed; phase_verify ;;
+      # dependency order (see app-all above): secrets -> certs -> coredns -> backends -> apps -> edge -> seed
+      phase_secrets; phase_certs; phase_coredns; phase_support; phase_storage; phase_editors; \
+        phase_apps; phase_node_apps; phase_edge; phase_haproxy; phase_storage_seed; phase_verify ;;
     *) err "unknown target: $target"; usage; exit 2 ;;
   esac
 }

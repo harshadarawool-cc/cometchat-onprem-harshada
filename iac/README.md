@@ -40,12 +40,15 @@ iac/
 
 ## Phases (`./deploy.sh <phase>`)
 `preflight · infra · inventory · datastores-wait · credgen · datastores · rke2 · seed ·`
-`secrets · support · storage · editors · apps · node-apps · coredns · edge · haproxy · certs · verify · status`
+`secrets · certs · coredns · support · storage · editors · apps · node-apps · edge · haproxy · storage-seed · verify · status`
 
-**Order matters** (encoded in `all`): VMs (incl. 2 HAProxy) → datastores(+kafka topics) → **credgen** (fresh
-DB passwords) → datastores provision with them → seed (dumps + mongo/vcb/moderation) → **then** apps →
-node-apps → coredns (direct-to-Service split-horizon) → **edge** (NodePort overlay) → **haproxy** (SNI
-config) → certs (Let's Encrypt) → verify.
+**Order matters — it's a dependency chain** (encoded in `all`): VMs (incl. 2 HAProxy) →
+datastores(+kafka topics) → **credgen** (fresh DB passwords) → datastores provision with them → **seed**
+(dumps + mongo/vcb/moderation + mongo users) → secrets → **certs** (real wildcard-tls) → **coredns**
+(east-west DNS) → backends (support/storage/editors) → **then** apps → node-apps → **edge** (NodePort
+overlay) → **haproxy** (SNI) → **storage-seed** (LATE object assets) → verify. Apps start only once their
+prerequisites exist — real cert (sidecars load it at boot), east-west DNS, and seeded backends. See
+[docs/SEEDING.md](docs/SEEDING.md) + [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Credentials (fresh per cluster, auto-synced)
 `credgen` generates `secrets/infra/cluster-creds.yml` (6 datastore passwords). deploy.sh passes it to
