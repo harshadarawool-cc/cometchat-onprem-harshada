@@ -182,6 +182,15 @@ variable "bastion_machine_type" {
   default = "e2-small"
 }
 
+###############################################################################
+# Edge (HAProxy) sizing — replaces the GCP L4 LB.
+# 2 VMs = active-active (DNS round-robins facing hosts across both public IPs).
+###############################################################################
+variable "haproxy" {
+  type    = object({ count = number, machine_type = string })
+  default = { count = 2, machine_type = "e2-small" }
+}
+
 variable "vm_image" {
   type        = string
   description = "Boot image for all VMs."
@@ -208,4 +217,14 @@ variable "agent_boot_disk_gb" {
 variable "disk_type" {
   type    = string
   default = "pd-standard"
+}
+
+# Encryption at rest. GCP Persistent Disks are ALWAYS encrypted at rest; by
+# default with Google-managed keys. Set this to a Cloud KMS CryptoKey self-link
+# (projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>) to use Customer-Managed
+# Encryption Keys (CMEK) on every boot + data disk instead. Empty = Google-managed.
+variable "disk_kms_key" {
+  type        = string
+  description = "Cloud KMS CryptoKey self-link for CMEK disk encryption at rest. Empty = Google-managed keys."
+  default     = ""
 }

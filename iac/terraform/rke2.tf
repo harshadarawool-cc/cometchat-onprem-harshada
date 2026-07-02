@@ -1,7 +1,7 @@
 ###############################################################################
 # RKE2 nodes — servers (control plane) + agents (workers) on the cluster subnet.
-# No public IPs. Agents are tagged "rke2-agent" so the edge LB / health checks
-# can reach ingress-nginx (hostPort 80/443) on them.
+# No public IPs. Agents are tagged "rke2-agent" so the HAProxy edge can reach the
+# per-service NodePorts (30000-32767) on them (SNI passthrough -> pod nginx TLS sidecar).
 ###############################################################################
 locals {
   rke2_nodes = merge(
@@ -25,6 +25,8 @@ resource "google_compute_instance" "rke2" {
   can_ip_forward = true # pod overlay networking
 
   boot_disk {
+    # CMEK when provided; else Google-managed keys (both encrypt at rest).
+    kms_key_self_link = var.disk_kms_key != "" ? var.disk_kms_key : null
     initialize_params {
       image = var.vm_image
       size  = each.value.disk_gb # servers: boot_disk_gb; agents: agent_boot_disk_gb (local-path storage)

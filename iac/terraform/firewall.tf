@@ -53,36 +53,55 @@ resource "google_compute_firewall" "iap_k8s_api" {
   }
 }
 
-# GCP load-balancer health checks -> ingress nodes.
-resource "google_compute_firewall" "health_checks" {
-  name          = "${var.name_prefix}-allow-health-checks"
+# Public edge: clients -> HAProxy VMs on :443 (TLS SNI passthrough).
+# HAProxy is the ONLY public entry point (replaces the old GCP L4 LB). Tighten
+# edge_allowed_cidrs to the customer's real client/VPN ranges in production.
+resource "google_compute_firewall" "edge_haproxy" {
+  name          = "${var.name_prefix}-allow-edge-haproxy"
   network       = google_compute_network.vpc.id
   direction     = "INGRESS"
   priority      = 1000
-  source_ranges = ["35.191.0.0/16", "130.211.0.0/22"]
-  target_tags   = ["rke2-agent"]
+  source_ranges = var.edge_allowed_cidrs
+  target_tags   = ["haproxy"]
 
-  # 443 only — cert-manager uses Route53 DNS-01 (no HTTP-01), so no public :80 needed.
+  # INBOUND-CLOSED: HTTPS only at the front door (SNI passthrough on :443).
   allow {
     protocol = "tcp"
     ports    = ["443"]
   }
 }
 
-# Public edge: clients -> ingress-nginx (hostPort 443) on the agent nodes.
-# Tighten edge_allowed_cidrs to the customer's real client ranges in production.
-resource "google_compute_firewall" "edge_ingress" {
-  name          = "${var.name_prefix}-allow-edge-ingress"
+# IAP -> HAProxy stats page (:8404) for edge health/observability (admin only).
+resource "google_compute_firewall" "iap_haproxy_stats" {
+  name          = "${var.name_prefix}-allow-iap-haproxy-stats"
   network       = google_compute_network.vpc.id
   direction     = "INGRESS"
   priority      = 1000
-  source_ranges = var.edge_allowed_cidrs
-  target_tags   = ["rke2-agent"]
+  source_ranges = [var.iap_cidr]
+  target_tags   = ["haproxy"]
 
-  # INBOUND-CLOSED: HTTPS only at the front door (no public :80).
   allow {
     protocol = "tcp"
-    ports    = ["443"]
+    ports    = ["8404"]
+  }
+}
+
+# HAProxy -> RKE2 agents on the Kubernetes NodePort range. HAProxy forwards each
+# SNI-matched connection to the per-service NodePort where the pod's nginx TLS
+# sidecar terminates the wildcard cert. The blanket "internal" rule above already
+# covers edge->cluster, but this explicit rule documents the path and survives any
+# future tightening of the internal rule.
+resource "google_compute_firewall" "haproxy_to_nodeports" {
+  name          = "${var.name_prefix}-allow-haproxy-nodeports"
+  network       = google_compute_network.vpc.id
+  direction     = "INGRESS"
+  priority      = 1000
+  source_ranges = [var.subnet_edge_cidr] # the edge subnet (where HAProxy lives)
+  target_tags   = ["rke2-agent"]
+
+  allow {
+    protocol = "tcp"
+    ports    = ["30000-32767"]
   }
 }
 

@@ -40,6 +40,14 @@ resource "google_compute_disk" "datastore_data" {
   zone     = var.zone
   size     = each.value.data_disk
   labels   = var.labels
+
+  # CMEK when provided; else Google-managed keys (both encrypt data at rest).
+  dynamic "disk_encryption_key" {
+    for_each = var.disk_kms_key != "" ? [1] : []
+    content {
+      kms_key_self_link = var.disk_kms_key
+    }
+  }
 }
 
 resource "google_compute_instance" "datastore" {
@@ -51,6 +59,8 @@ resource "google_compute_instance" "datastore" {
   labels       = merge(var.labels, { role = each.value.role })
 
   boot_disk {
+    # CMEK when provided; else Google-managed keys (both encrypt at rest).
+    kms_key_self_link = var.disk_kms_key != "" ? var.disk_kms_key : null
     initialize_params {
       image = var.vm_image
       size  = var.boot_disk_gb
