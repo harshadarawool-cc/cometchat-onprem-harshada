@@ -10,13 +10,13 @@ Registry: `894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images` �
 | Service | Tag (intent) | Digest (sha256) | Referenced in |
 |---|---|---|---|
 | chatapi | `:chat-api` (fixed pin) | `e35cfbec…89558` | `k8s/chatapi.yaml` |
-| mgmtapi | `:mgmt-ioncube-test` | `a25e8dfa…3d50` | `k8s/mgmtapi.yaml` |
+| mgmtapi | `:mgmt` | `1712df2f…a5c4` | `k8s/mgmtapi.yaml` |
 | dashboard | `:customer-dashboard` | `fd2d877b…70aa` | `k8s/dashboard.yaml` |
 | analytics-api | `:analytics` | `8ae95a99…9433` | `k8s/apps/no-ref-apps.yaml` |
 | metrics-pro (+ metrics-pro-timer) | `:pro-metrics` | `3a127b33…c12d` | `k8s/apps/no-ref-apps.yaml`, `k8s/apps/metrics-pro-timer.yaml` |
 | extensions | `:extensions` (node22-fix, pinned) | `c826c46e…35e72` | `k8s/apps/no-ref-apps.yaml` |
 | globalwebhooks | (webhooks) | `96a7e73b…bd45` | `k8s/apps/globalwebhooks.yaml` |
-| notificationscore | (notifications) | `2dc5eb05…37ce9` | `k8s/apps/notificationscore.yaml` |
+| notificationscore | `:notifications-core` | `2d23ab53…78a61` | `k8s/apps/notificationscore.yaml` |
 | service-search | (search) | `c05ddc1f…2609` | `k8s/apps/service-search.yaml` |
 | document-embed | `:document-embed` (Etherpad) | `06aa1266…3148` | `k8s/apps/doc-whiteboard.yaml` |
 | whiteboard | `:whiteboard` | `e149acaa…fc041` | `k8s/apps/doc-whiteboard.yaml` |

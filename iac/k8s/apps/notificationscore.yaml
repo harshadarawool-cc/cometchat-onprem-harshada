@@ -79,7 +79,7 @@ spec:
           # Node20 + newer path-to-regexp rejects the app's own route '/sms/v1/providers(/dashboard)?/twilio'.
           # Reverted to the working standard build. (Standard build accepts startup but rejects the
           # message-event DTO — both are dev/image bugs; see docs/PROBLEMS-AND-FIXES.md.)
-          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:2dc5eb05326be026b6fcab4970314811d481690b676aa4148356402154337ce9
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:2d23ab53764799ead4a488e0818cd2167e306480d9e69931bb84c1ca2d978a61  # :notifications-core (user-pinned 2026-07-02)
           # All config comes from the Secret as environment variables (datastore IPs already
           # swapped to *.db.internal).
           envFrom:
