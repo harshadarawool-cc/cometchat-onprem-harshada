@@ -14,18 +14,18 @@ ansible_ssh_common_args: >-
 # ServerAliveInterval/CountMax = keepalive so the IAP tunnel doesn't drop during long tasks (apt install on a
 # fresh VM) -> avoids the "Data could not be sent to remote host / UNREACHABLE" flake on freshly-booted VMs.
 
-# --- datastore topology (v3 TEST: 10.23.x, 1 of each) ---
+# --- datastore topology (v3 TEST: 10.24.x, 1 of each) ---
 mongo_replset: rs0
 mongo_members:
-  - { host: 10.23.10.11, priority: 2 }
+  - { host: 10.24.10.11, priority: 2 }
 
-kafka_brokers: "10.23.10.31:9092"
+kafka_brokers: "10.24.10.31:9092"
 
 # Redis = 4 DEDICATED Sentinel clusters, 1 node each (TEST). Master = node-1.
 # Per-host redis_role + redis_master_ip live in the inventory; ports are 6379/26379.
 
-tidb_host: 10.23.10.51
-mysql_host: 10.23.10.41
+tidb_host: 10.24.10.51
+mysql_host: 10.24.10.41
 
 # Edge = 2 HAProxy VMs (public IPs). deploy.sh phase_inventory refreshes this list from
 # `terraform output -json haproxy_ips`. Used as extra tls-san entries on the RKE2 API cert

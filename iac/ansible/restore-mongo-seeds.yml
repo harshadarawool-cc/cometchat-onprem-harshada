@@ -16,7 +16,7 @@
 #     moderation.profanewordkeywords                         <- moderation.profanewordkeywords.json
 #         (moderation default config / rules / profanity keyword master data)
 #
-#   Connects to mongo at 10.23.10.11:27017 as admin (mongo_admin_user/mongo_admin_password from
+#   Connects to mongo at 10.24.10.11:27017 as admin (mongo_admin_user/mongo_admin_password from
 #   vault), authSource admin, replicaSet rs0. Runs from the mongo primary host.
 - name: Seed in-repo Mongo JSON seeds into rs0 (idempotent)
   hosts: mongo[0]
@@ -24,7 +24,7 @@
   gather_facts: false
   vars:
     repo_mongo_dir: "{{ playbook_dir }}/../../dumps/mongo"
-    mongo_uri: "mongodb://10.23.10.11:27017/?replicaSet=rs0&authSource=admin"
+    mongo_uri: "mongodb://10.24.10.11:27017/?replicaSet=rs0&authSource=admin"
     mongo_user: "{{ mongo_admin_user | default('root') }}"
     mongo_pass: "{{ vault_mongo_admin_password }}"
     # db / collection / source file. All source files are JSON arrays (--jsonArray).

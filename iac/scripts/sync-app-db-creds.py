@@ -45,7 +45,7 @@ def datastore_ips():
         t = open(INVENTORY).read()
         a = re.search(r'mysql-\d+:\s*\{\s*int_ip:\s*([0-9.]+)', t); mysql_ip = a.group(1) if a else None
         b = re.search(r'tidb-\d+:\s*\{\s*int_ip:\s*([0-9.]+)',  t); tidb_ip  = b.group(1) if b else None
-    return mysql_ip or "10.23.10.41", tidb_ip or "10.23.10.51"
+    return mysql_ip or "10.24.10.41", tidb_ip or "10.24.10.51"
 
 def mongo_sub(text, creds):
     return re.sub(r'mongodb://(admin|extadmin|webhookuser):[^@]+@',

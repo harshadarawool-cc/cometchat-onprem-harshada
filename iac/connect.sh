@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Connect to the v3 TEST cluster (cometchat-onprem-v3) from your laptop — opens every tunnel and
+# Connect to the v3 TEST cluster (cometchat-onprem-v4) from your laptop — opens every tunnel and
 # prints kubectl + Mailpit + MongoDB + MySQL + TiDB + Redis + Kafka + OpenSearch + SeaweedFS details.
 #
 # Self-syncing: reads cluster identity + datastore /24 from deploy/customer.conf, so it always matches
@@ -18,8 +18,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 . "$HERE/deploy/customer.conf"
 NS="${NS:-cometchat}"
 MASTER="${PREFIX}-k8s-master-1"; BASTION="${PREFIX}-bastion"; KPORT="${TUNNEL_PORT:-6444}"
-# datastore /24 prefix from customer.conf subnet_data_cidr (e.g. 10.23.10.0/24 -> 10.23.10)
-DATA3="$(echo "${SUBNET_DATA_CIDR:-10.23.10.0/24}" | sed -E 's/\.[0-9]+\/[0-9]+$//')"
+# datastore /24 prefix from customer.conf subnet_data_cidr (e.g. 10.24.10.0/24 -> 10.24.10)
+DATA3="$(echo "${SUBNET_DATA_CIDR:-10.24.10.0/24}" | sed -E 's/\.[0-9]+\/[0-9]+$//')"
 # fixed host offsets from the terraform module (first node of each role)
 MONGO_IP="$DATA3.11"; REDIS_IP="$DATA3.21"; REDIS_ANALYTICS_IP="$DATA3.24"
 REDIS_PROMETRICS_IP="$DATA3.27"; REDIS_BULLMQ_IP="$DATA3.61"; KAFKA_IP="$DATA3.31"

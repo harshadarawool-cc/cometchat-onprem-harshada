@@ -444,7 +444,7 @@ import json,sys
 pw=open(sys.argv[1]).read().strip()
 json.dump({"title":"CometChat Document","favicon":"favicon.ico","skinName":"colibris",
   "ip":"0.0.0.0","port":9001,"dbType":"mysql",
-  "dbSettings":{"user":"etherpaduser","host":"10.23.10.41","port":3306,"password":pw,
+  "dbSettings":{"user":"etherpaduser","host":"10.24.10.41","port":3306,"password":pw,
                 "database":"etherpad","charset":"utf8mb4"},
   "defaultPadText":"","requireSession":False,"requireAuthentication":False,
   "requireAuthorization":False,"trustProxy":True,"editOnly":False,
