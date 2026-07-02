@@ -76,7 +76,7 @@ spec:
       imagePullSecrets: [{ name: ecr-pull-secret }]
       containers:
         - name: document-embed
-          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:8681d4e6e80203ecd020452612183c11ed7f948e10f14142a599ee266c51b226  # :document-embed (user-pinned 2026-07-02)
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:14fdbea7cfa6b0dad03324226369d1ad5d3b8466a7480dcde74b4fe1ceb1630b  # :document-embed (user-pinned 2026-07-02)
           imagePullPolicy: IfNotPresent
           env:
             - { name: NODE_ENV, value: production }

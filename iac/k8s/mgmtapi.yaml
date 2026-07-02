@@ -56,7 +56,7 @@ spec:
       imagePullSecrets: [{ name: ecr-pull-secret }]
       initContainers:
         - name: stage
-          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:1712df2fb60ee0e90529b3bbe573e0b57509694c6a0b21ffa396b430dd6ea5c4  # :mgmt (user-pinned 2026-07-02)
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:7c80c2286608b3e9a8ec1b6dbd55a4c229a202c357b29492964750b9f17c7751  # :mgmt (user-pinned 2026-07-02)
           command: ["sh","-c"]
           args:
             - |
@@ -73,7 +73,7 @@ spec:
             - { name: license-secret, mountPath: /s/license, readOnly: true }
       containers:
         - name: mgmtapi
-          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:1712df2fb60ee0e90529b3bbe573e0b57509694c6a0b21ffa396b430dd6ea5c4  # :mgmt (user-pinned 2026-07-02)
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:7c80c2286608b3e9a8ec1b6dbd55a4c229a202c357b29492964750b9f17c7751  # :mgmt (user-pinned 2026-07-02)
           # New mgmt image (689ac042, pushed 2026-06-22): handles the region secret itself — its own
           # migration writes regions.hash from ONPREM_REGION_SECRET, so the previous regions.hash
           # workaround is REMOVED. Startup: migrate (idempotent, runs that region migration) then php-fpm.
