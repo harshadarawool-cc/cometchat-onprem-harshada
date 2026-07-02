@@ -76,7 +76,7 @@ spec:
           # CrashLoopBackOff once a new pod re-loads the code past the expiry date). The 2026-06-22 build
           # (79ecc5) expired 2026-06-24. Re-pin to the latest `:chat-api` digest when this recurs; ask
           # CometChat for a non-expiring production build. Refresh ecr-pull-secret first (ECR token ~12h).
-          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:e35cfbec6b8ac7a894cf94176f6baac13df00c13c7bff3725fe7964475d89558  # :chat-api (fixed pin)
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:f195b85a74b3a5cc92b33bf59ab3759e21d9f5dff959e2f87ca91ea5f2d29651  # :chatapi-ioncube-test (user-pinned 2026-07-02)
           command: ["sh","-c"]
           args:
             - |

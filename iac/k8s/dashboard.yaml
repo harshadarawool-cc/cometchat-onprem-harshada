@@ -30,7 +30,7 @@ spec:
       imagePullSecrets: [{ name: ecr-pull }]
       initContainers:
         - name: copy-build
-          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:fd2d877b093c4f7d26cfe4462bd76a34cbdd2e12a0089a2f47f857903bbb70aa  # :customer-dashboard (latest)
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:28078c3bbd84ebfeb08dce31916735baca1c6ddd77604d1efd4db895577c3457  # :customer-dashboard (user-pinned 2026-07-02)
           command: ["sh","-c","cp -r /app/build/. /web/ 2>/dev/null || cp -r /usr/share/nginx/html/. /web/ 2>/dev/null || cp -r /app/dist/. /web/; echo copied $(find /web -type f | wc -l) files"]
           volumeMounts: [{ name: web, mountPath: /web }]
       containers:

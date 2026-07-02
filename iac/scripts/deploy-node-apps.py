@@ -28,7 +28,7 @@ KC = os.environ.get("KUBECONFIG", os.path.join(_IAC, "kubeconfig-6444"))
 NODE = [
     ("websocket", "sha256:57c6d000f704f5c0f4cab6f46ca6f6ef982ab46eb3d79dc48265c58e8c2e3972", 8080, "/app/.env", "/v1/health", True, True),
     ("moderationservice", "sha256:b6dcb064715215059bc7b3db4c001e912bdf0b629defc59504e5ae70b61f0f5d", 3000, "/app/.env", "/health", False, True),
-    ("visual-chat-builder", "sha256:58f9279b775c9ffdbef65576046506a97ea85f6b711de8d0fdf80913e2c6e204", 3000, "/app/.env", "/v1/health-check", False, True),
+    ("visual-chat-builder", "sha256:8c0f173baa57ddf24d38c56a4b5bc607d27e256cc40f410aa8447f125215a168", 3000, "/app/.env", "/v1/health-check", False, True),  # user-pinned 2026-07-02 (branch fix + npm audit)
     ("ai-agent-service", "sha256:5adf6f3fec9768699eb4df8dd9ef1962a2a4d72eed621a062e79dc0ebe7207df", 4002, "/app/.env", None, False, False),
 ]
 # name, digest, env_path, start_cmd  (workers: no Service)
@@ -223,7 +223,7 @@ spec:
       imagePullSecrets: [{{ name: ecr-pull }}]
       initContainers:
         - name: copy-build
-          image: {ECR}@sha256:fd2d877b093c4f7d26cfe4462bd76a34cbdd2e12a0089a2f47f857903bbb70aa
+          image: {ECR}@sha256:28078c3bbd84ebfeb08dce31916735baca1c6ddd77604d1efd4db895577c3457
           command: ["sh","-c","cp -r /app/build/. /web/ 2>/dev/null || cp -r /usr/share/nginx/html/. /web/ 2>/dev/null || cp -r /app/dist/. /web/; echo copied $(find /web -type f | wc -l) files"]
           volumeMounts: [{{ name: web, mountPath: /web }}]
       containers:

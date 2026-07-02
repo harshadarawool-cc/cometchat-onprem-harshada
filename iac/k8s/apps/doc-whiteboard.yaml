@@ -76,7 +76,7 @@ spec:
       imagePullSecrets: [{ name: ecr-pull-secret }]
       containers:
         - name: document-embed
-          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:06aa1266fa1275b7f58908fa30c320ba8326aaaa85aff2143578018592223148  # :document-embed (latest)
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:8681d4e6e80203ecd020452612183c11ed7f948e10f14142a599ee266c51b226  # :document-embed (user-pinned 2026-07-02)
           imagePullPolicy: IfNotPresent
           env:
             - { name: NODE_ENV, value: production }
@@ -155,7 +155,7 @@ spec:
       imagePullSecrets: [{ name: ecr-pull-secret }]
       containers:
         - name: whiteboard
-          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:e149acaaa9c922aff0bb5528412c31cb699d9f67fcce334d50b7d34eb70fc041  # :whiteboard (latest)
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:91cf6c6905a1936fae8da158383335f12e2598c3de8dc7ed20d66d29e582d7e4  # :whiteboard (user-pinned 2026-07-02)
           imagePullPolicy: IfNotPresent
           command: ["node", "scripts/server.js", "--mode=production", "--config=config.default.yml"]
           env:
