@@ -80,22 +80,34 @@ ports 6379 / 26379, master name `mymaster`. Master = node-1 of each cluster.
 
 | Service | Mongo | Kafka | TiDB/MySQL | Redis cluster | Other |
 |---|---|---|---|---|---|
-| chatapi | — | ✅ | TiDB `10.20.10.51` | **shared** | media-onprem |
-| mgmtapi | — | — | MySQL `10.20.10.41` | — | mailpit |
+> **Corrected 2026-07-02 from the live app `.env`s** (the 2026-06-21 version had the Mongo column wrong
+> for extensions/globalwebhooks/analytics/pro-metrics). **Authoritative matrix:**
+> [INTERNAL-CONNECTIONS.md](INTERNAL-CONNECTIONS.md). **IPs below use the default `10.20.x` scheme — this
+> cluster's `customer.conf` uses `10.23.x`;** only the last octets are meaningful (mongo `.11-.13`, kafka
+> `.31-.33`, tidb `.51`, mysql `.41`, redis shared `.21-.23`).
+
+| Service | Mongo | Kafka | TiDB/MySQL | Redis cluster | Other |
+|---|---|---|---|---|---|
+| chatapi | — | ✅ | TiDB `.51` | **shared** | media-onprem |
+| mgmtapi | — | — | MySQL `.41` | — | mailpit |
 | websocket | — | ✅ | — | **shared** | |
 | notificationscore | ✅ | ✅ | — | **shared** (cache) + **bullmq** | |
 | notifications-delay-worker | — | ✅ | — | **bullmq** | |
 | moderationservice | ✅ | ✅ | — | — | ollama, clamav |
-| globalwebhooks | — | ✅ | — | — | |
-| receipt-updater | — | ✅ | TiDB `10.20.10.51` | **shared** | |
-| sql-consumer | — | ✅ | TiDB `10.20.10.51` | — | |
+| globalwebhooks | ✅ | ✅ | — | — | Mongo `events` DB (webhookuser) |
+| receipt-updater | — | ✅ | TiDB `.51` | **shared** | |
+| sql-consumer | — | ✅ | TiDB `.51` | — | |
 | service-search | — | ✅ | — | — | opensearch |
-| ai-agent-service | ✅ | ✅ | — | **shared** | |
-| calls-relay | ✅ | ✅ | — | — | |
-| extensions | — | ✅ | — | — | |
-| analytics | ✅ | — | — | **analytics** | |
-| pro-metrics | ✅ | ✅ | — | **prometrics** | |
+| ai-agent-service | ✅ | ✅ | — | **shared** | ollama |
+| extensions | ✅ | ✅ | — | — | media (assets) |
+| analytics | — | — | MySQL `.41` (`analytics_logs`) | **analytics** | |
+| pro-metrics | — | ✅ | MySQL `.41` (`metrics`) | **prometrics** | |
 | visual-chat-builder | ✅ | — | — | — | |
 | clamav | — | — | — | — | (standalone) |
+| _calls-relay_ | _✅_ | _✅_ | — | — | _DISABLED — not deployed_ |
 
-_Last updated: 2026-06-21 · IPs become live after `terraform apply`._
+**MongoDB is used by exactly 6 services:** ai-agent-service, extensions, globalwebhooks, moderationservice,
+notificationscore, visual-chat-builder. **chatapi is NOT one of them** — chat messages/conversations live in
+**TiDB** (`DB_HOST=…51`), not Mongo. Mongo holds flexible-shape config/rules/templates only.
+
+_Last updated: 2026-07-02 · IPs become live after `terraform apply`._

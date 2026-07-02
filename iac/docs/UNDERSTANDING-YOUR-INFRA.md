@@ -79,7 +79,8 @@ job well. Here's each one, in plain terms, with what it stores and who uses it.
 - **What it holds:** things whose shape varies a lot — webhook/event definitions, moderation rules,
   visual-chat-builder templates, notification settings/templates, some extension data.
 - **Who uses it:** `globalwebhooks` (the `events` DB), `moderationservice`, `visual-chat-builder`,
-  `notificationscore`, `extensions`.
+  `notificationscore`, `extensions`, `ai-agent-service`. (Note: **chatapi does *not* use Mongo** — chat
+  messages live in TiDB. Mongo is only for the flexible-shape config/rules/templates these services keep.)
 - **Analogy:** a filing cabinet where every folder can have a different layout.
 
 ### Redis — the fast scratchpad + megaphone (you have **four** separate ones)

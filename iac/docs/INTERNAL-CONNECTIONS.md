@@ -72,7 +72,7 @@ Canonical endpoints (rebuild via `ansible/group_vars/all/main.yml` + `secrets-*`
 
 | Datastore | Endpoint(s) | Port | Used by |
 |---|---|---|---|
-| **MongoDB** rs0 (×3) | `10.23.10.11-13` | 27017 | globalwebhooks (`events`), moderationservice, visual-chat-builder, notificationscore, extensions |
+| **MongoDB** rs0 (×3) | `10.23.10.11-13` | 27017 | globalwebhooks (`events`), moderationservice, visual-chat-builder, notificationscore, extensions, ai-agent-service |
 | **Kafka** KRaft (×3) | `10.23.10.31-33` | 9092 | chatapi, websocket, notificationscore, ai-agent, moderationservice, service-search, extensions, metrics-pro, sql-consumer, receipt-updater, notifications-delay-worker |
 | **TiDB** (PD+TiKV+TiDB+TiProxy) | `10.23.10.51` | 3306 (wire) / 4000 | chatapi, receipt-updater, sql-consumer |
 | **MySQL 8** | `10.23.10.41` | 3306 | mgmtapi (`pulsecustomerdb`), metrics-pro (`metrics`), analytics (`analytics_logs`), document-embed (etherpad) |
