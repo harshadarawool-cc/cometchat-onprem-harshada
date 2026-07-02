@@ -1,0 +1,45 @@
+# One-shot seed Job — pre-fills the public buckets with the bundled CometChat assets
+# (AI-agent icons, sample-app avatars, default stickers, VCB export zips) and creates the
+# private `uploads` bucket. Idempotent: re-running skips any prefix that already has objects.
+#
+# RUN ORDER: apply this LAST — after cometchatFS + edge nginx are up and DNS resolves
+# __S3_HOST__ (the seeder signs S3 requests against that host, matching S3_EXTERNAL_URL).
+# Uses the CONSOLE (Admin) S3 key from the cometchatfs-env secret (apps key can't create buckets).
+# Placeholders: __NAMESPACE__ __S3_HOST__
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cometchatfs-seed
+  namespace: __NAMESPACE__
+  labels: { app: cometchatfs, component: seed }
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 600 # auto-remove the finished Job after 10 min
+  template:
+    metadata:
+      labels: { app: cometchatfs, component: seed }
+    spec:
+      restartPolicy: Never
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001 }
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      containers:
+        - name: seed
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/cometchat-enterprise:cometchatfs-seed@sha256:aacf9de81d7b282afa4a32a693d3dd31f60b6300a821bd45d38a8b09dc3477a4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: S3_ENDPOINT
+              value: "https://__S3_HOST__"
+            # CONSOLE (Admin) key — reused from the console's secret. Admin is needed to create buckets.
+            - name: S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: cometchatfs-env, key: S3_ACCESS_KEY } }
+            - name: S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: cometchatfs-env, key: S3_SECRET_KEY } }
+            # Set "true" only if __S3_HOST__ serves a self-signed cert during bring-up.
+            - name: S3_INSECURE
+              value: "false"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }

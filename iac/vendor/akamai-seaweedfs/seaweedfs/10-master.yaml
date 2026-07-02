@@ -1,0 +1,82 @@
+# SeaweedFS master — 3 replicas (Raft quorum, HA). Holds volume topology + assignment.
+# Placeholders (filled by render.sh — see DEPLOY.md §2): __NAMESPACE__ __STORAGE_CLASS__
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs-master
+  namespace: __NAMESPACE__
+  labels: { app: seaweedfs, component: master }
+spec:
+  clusterIP: None # headless — gives each master a stable pod DNS for Raft peering
+  publishNotReadyAddresses: true
+  selector: { app: seaweedfs, component: master }
+  ports:
+    - { name: http, port: 9333, targetPort: 9333 }
+    - { name: grpc, port: 19333, targetPort: 19333 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seaweedfs-master
+  namespace: __NAMESPACE__
+  labels: { app: seaweedfs, component: master }
+spec:
+  serviceName: seaweedfs-master
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app: seaweedfs, component: master }
+  template:
+    metadata:
+      labels: { app: seaweedfs, component: master }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, fsGroup: 1000 }
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      affinity: # spread masters across nodes — survive a node loss
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: { app: seaweedfs, component: master }
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: master
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/cometchat-enterprise:seaweedfs-4.37@sha256:f898c91e42d7da5f4bb13f1efd424ff03ba85b420312eb929708a384e8a8b03d # PIN to a digest for client delivery
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          command: ["weed"]
+          args:
+            - "-logtostderr"
+            - "master"
+            - "-ip=$(POD_NAME).seaweedfs-master"
+            - "-ip.bind=0.0.0.0"
+            - "-port=9333"
+            - "-mdir=/data"
+            # 2 copies of every object on different volume servers (no single point of failure)
+            - "-defaultReplication=001"
+            - "-volumeSizeLimitMB=1024"
+            - "-peers=seaweedfs-master-0.seaweedfs-master:9333,seaweedfs-master-1.seaweedfs-master:9333,seaweedfs-master-2.seaweedfs-master:9333"
+          ports:
+            - { containerPort: 9333, name: http }
+            - { containerPort: 19333, name: grpc }
+          readinessProbe:
+            httpGet: { path: /cluster/healthz, port: 9333 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: __STORAGE_CLASS__ # use an ENCRYPTED storage class (see DEPLOY.md §0)
+        resources: { requests: { storage: 5Gi } }

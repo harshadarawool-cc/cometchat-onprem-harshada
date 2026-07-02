@@ -1,0 +1,239 @@
+# Edge nginx — terminates TLS and routes the client's two hosts:
+#   __S3_HOST__       -> SeaweedFS S3 API (filer :8333)   [media/object traffic + presigned URLs]
+#   __CONSOLE_HOST__  -> cometchatFS console (:3300)       [the UI]
+# 2 replicas (no SPOF). Alternative: use your ingress-controller + Ingress objects instead.
+#
+# ⚠️ APPLY ORDER: deploy the cometchatFS Service BEFORE this — nginx resolves upstreams at
+# startup and will crash-loop ("host not found in upstream") if `cometchatfs`/`seaweedfs-filer`
+# don't exist yet. (DEPLOY.md applies them in the right order.)
+# Placeholders: __NAMESPACE__ __S3_HOST__ __CONSOLE_HOST__ __TLS_SECRET__
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seaweedfs-edge-nginx
+  namespace: __NAMESPACE__
+data:
+  # Served at /favicon.ico on BOTH hosts (mounted alongside default.conf in conf.d).
+  favicon.svg: |
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+      <rect width="32" height="32" rx="7" fill="#6d28d9"/>
+      <g fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <ellipse cx="14" cy="9" rx="7.5" ry="3.2"/>
+        <path d="M6.5 9v13c0 1.8 3.4 3.2 7.5 3.2 1.2 0 2.3-.12 3.3-.33"/>
+        <path d="M6.5 15.5c0 1.8 3.4 3.2 7.5 3.2 1 0 2-.09 2.9-.25"/>
+      </g>
+      <path d="M19 25.5a3.1 3.1 0 0 1 .2-6.06 4.2 4.2 0 0 1 8 .3 2.85 2.85 0 0 1-.5 5.76z"
+            fill="#38bdf8" stroke="#ffffff" stroke-width="1.4" stroke-linejoin="round"/>
+    </svg>
+  default.conf: |
+    # ---- Edge caching for PUBLIC bucket assets (offloads the filer at ~10k users) ----
+    # Presigned URLs ALWAYS carry "X-Amz-Signature" -> never browser-cache, never edge-cache them
+    # (time-limited + per-user). Direct (unsigned) public GETs -> cacheable. Tune max-age to taste.
+    # Cache ONLY plain object GETs. Never cache presigned URLs OR bucket operations (list/multipart/
+    # versions/acl/tagging) — caching a listing is what made "No objects" flip with the real list.
+    map $args $asset_cache {
+        default                                                          "public, max-age=7200";
+        "~*(X-Amz-Signature|list-type|uploadId|uploads|versions|acl|tagging|policy)" "no-store";
+    }
+    # 1 = skip the edge cache entirely (presigned, or any bucket-operation request).
+    map $args $skip_cache {
+        default                                                          0;
+        "~*(X-Amz-Signature|list-type|uploadId|uploads|versions|acl|tagging|policy)" 1;
+    }
+    # Edge disk cache: up to 1 GB, entries valid 2h, evicted after 2h idle. Per-pod (emptyDir).
+    proxy_cache_path /var/cache/nginx/public levels=1:2 keys_zone=public_cache:10m max_size=1g inactive=2h use_temp_path=off;
+    # ---- S3 API ----
+    server {
+        listen 80;
+        server_name __S3_HOST__;
+        return 301 https://$host$request_uri;
+    }
+    server {
+        listen 443 ssl;
+        server_name __S3_HOST__;
+        ssl_certificate     /etc/nginx/ssl/tls.crt;
+        ssl_certificate_key /etc/nginx/ssl/tls.key;
+        client_max_body_size 0;          # allow large object PUTs
+        proxy_request_buffering off;
+        # Browsers auto-request /favicon.ico on direct object views; the S3 gateway would 403 it.
+        # Serve the storage icon so the tab shows it (not just a silenced error).
+        location = /favicon.ico {
+            access_log off;
+            types { }                      # clear the .ico->x-icon mapping so default_type wins
+            default_type image/svg+xml;
+            add_header Cache-Control "public, max-age=86400";
+            alias /etc/nginx/conf.d/favicon.svg;
+        }
+        # PUBLIC buckets only — browser-cacheable for unsigned GETs (presigned stay no-store via the
+        # map). Private `uploads` + any presigned URL to other buckets are NOT matched here and fall
+        # through to `location /` (no caching). Object GETs match; bare bucket listings do not.
+        location ~ ^/(assets|stickers|visual-chat-builder-app)/ {
+            proxy_pass http://seaweedfs-filer:8333;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_read_timeout 300s;
+            # Edge cache (only unsigned public GETs; presigned bypass via $skip_cache). Key on the
+            # path only so all users share one entry; serve stale if the filer hiccups.
+            proxy_cache public_cache;
+            proxy_cache_key "$scheme://$host$uri";
+            proxy_cache_valid 200 2h;                         # cache only full 200s (not 206/range)
+            # Bypass the cache for presigned URLs AND any AUTHENTICATED request (Authorization
+            # header). The console's server-side head/get/list are header-signed; letting them touch
+            # the cache breaks their SigV4 (SignatureDoesNotMatch). Cache = anonymous public GETs only.
+            proxy_cache_bypass $skip_cache $http_authorization;
+            proxy_no_cache $skip_cache $http_authorization;
+            proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+            proxy_cache_lock on;                              # one fetch fills the cache (no stampede)
+            add_header X-Cache-Status $upstream_cache_status; # HIT / MISS / BYPASS (observability)
+            proxy_hide_header Cache-Control;                  # override SeaweedFS's header
+            add_header Cache-Control $asset_cache always;
+        }
+        location / {
+            proxy_pass http://seaweedfs-filer:8333;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_read_timeout 300s;
+        }
+    }
+    # ---- OPTIONAL: vanity domain for the PUBLIC `assets` bucket ----
+    # https://__ASSETS_HOST__/<key>  ->  /assets/<key> on the S3 gateway (the bucket name is hidden
+    # from the public URL and re-inserted internally by the rewrite below).
+    # PUBLIC / anonymous reads ONLY — never presign or send authenticated requests to this host: the
+    # signature is tied to host+path, and the rewrite would break it (SignatureDoesNotMatch). Private
+    # + presigned traffic stays on __S3_HOST__.
+    # Optional: if the client doesn't want pretty asset URLs, leave ASSETS_HOST unset — render.sh
+    # defaults it to a dormant host that never matches. To enable: set ASSETS_HOST=assets.<domain>,
+    # add a DNS A record for it -> the edge LB IP, and ensure the TLS secret covers that host
+    # (a wildcard *.<domain> cert is easiest). For stickers/vcb vanity hosts, copy this block and
+    # change server_name + the rewrite prefix.
+    server {
+        listen 80;
+        server_name __ASSETS_HOST__;
+        return 301 https://$host$request_uri;
+    }
+    server {
+        listen 443 ssl;
+        server_name __ASSETS_HOST__;
+        ssl_certificate     /etc/nginx/ssl/tls.crt;   # must cover __ASSETS_HOST__
+        ssl_certificate_key /etc/nginx/ssl/tls.key;
+        location = /favicon.ico {
+            access_log off;
+            types { }
+            default_type image/svg+xml;
+            add_header Cache-Control "public, max-age=86400";
+            alias /etc/nginx/conf.d/favicon.svg;
+        }
+        location / {
+            rewrite ^/(.*)$ /assets/$1 break;                 # prepend the bucket name -> path-style
+            proxy_pass http://seaweedfs-filer:8333;
+            # Pin Host to the S3 host so SeaweedFS always treats this PATH-STYLE (no virtual-host
+            # ambiguity if -s3.domainName is ever enabled). The client still sees the vanity host.
+            proxy_set_header Host __S3_HOST__;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_read_timeout 300s;
+            # public anonymous reads -> cacheable (mirrors the main /assets/ block)
+            proxy_cache public_cache;
+            proxy_cache_key "$scheme://$host$uri";
+            proxy_cache_valid 200 2h;
+            proxy_cache_bypass $skip_cache $http_authorization;
+            proxy_no_cache $skip_cache $http_authorization;
+            proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+            proxy_cache_lock on;
+            add_header X-Cache-Status $upstream_cache_status;
+            proxy_hide_header Cache-Control;
+            add_header Cache-Control $asset_cache always;
+        }
+    }
+    # ---- cometchatFS console (__CONSOLE_HOST__) ----
+    # DEPLOY-TEAM DECISION — should the admin console be reachable from the public internet?
+    #   * PUBLIC (default, blocks below): the edge serves the console behind login/RBAC; admins reach
+    #     it at https://__CONSOLE_HOST__. Give the host a public DNS record.
+    #   * INTERNAL-ONLY (more secure): DELETE the two server blocks below. The console then stays
+    #     in-cluster (svc/cometchatfs:3300) — admins reach it via `kubectl port-forward
+    #     svc/cometchatfs 3300` or VPN. Do NOT create a public DNS record for __CONSOLE_HOST__.
+    # Choose deliberately per the client's security posture; the rest of the stack is unaffected.
+    server {
+        listen 80;
+        server_name __CONSOLE_HOST__;
+        return 301 https://$host$request_uri;
+    }
+    server {
+        listen 443 ssl;
+        server_name __CONSOLE_HOST__;
+        ssl_certificate     /etc/nginx/ssl/tls.crt;
+        ssl_certificate_key /etc/nginx/ssl/tls.key;
+        client_max_body_size 0;
+        location = /favicon.ico {
+            access_log off;
+            types { }                      # clear the .ico->x-icon mapping so default_type wins
+            default_type image/svg+xml;
+            add_header Cache-Control "public, max-age=86400";
+            alias /etc/nginx/conf.d/favicon.svg;
+        }
+        location / {
+            proxy_pass http://cometchatfs:3300;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_read_timeout 300s;
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seaweedfs-edge
+  namespace: __NAMESPACE__
+  labels: { app: seaweedfs-edge }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: seaweedfs-edge } }
+  template:
+    metadata:
+      labels: { app: seaweedfs-edge }
+    spec:
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      containers:
+        - name: nginx
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/cometchat-enterprise:edge-nginx-1.27-alpine@sha256:6068ed9a05b1bc23d5ac9140d8330fa226e31f25911b4e5ccc17b6dea252523e
+          ports:
+            - { containerPort: 80 }
+            - { containerPort: 443 }
+          volumeMounts:
+            - { name: conf, mountPath: /etc/nginx/conf.d, readOnly: true }
+            - { name: tls, mountPath: /etc/nginx/ssl, readOnly: true }
+            - { name: cache, mountPath: /var/cache/nginx }   # edge proxy_cache storage (ephemeral)
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 256Mi }
+      volumes:
+        - name: conf
+          configMap: { name: seaweedfs-edge-nginx }
+        - name: tls
+          secret: { secretName: __TLS_SECRET__ } # your wildcard/host TLS cert
+        - name: cache
+          emptyDir: { sizeLimit: 1Gi } # per-pod object cache; rebuilds on restart (just an optimization)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs-edge
+  namespace: __NAMESPACE__
+  labels: { app: seaweedfs-edge }
+spec:
+  type: LoadBalancer
+  selector: { app: seaweedfs-edge }
+  ports:
+    - { name: http, port: 80, targetPort: 80 }
+    - { name: https, port: 443, targetPort: 443 }

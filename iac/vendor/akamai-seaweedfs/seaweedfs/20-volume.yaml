@@ -1,0 +1,81 @@
+# SeaweedFS volume servers — 3 replicas, each on its own (encrypted) disk on a different node.
+# With master -defaultReplication=001 every object is stored on 2 of these → survives 1 loss.
+# Placeholders: __NAMESPACE__ __STORAGE_CLASS__ __VOLUME_SIZE__
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs-volume
+  namespace: __NAMESPACE__
+  labels: { app: seaweedfs, component: volume }
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: { app: seaweedfs, component: volume }
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }
+    - { name: grpc, port: 18080, targetPort: 18080 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seaweedfs-volume
+  namespace: __NAMESPACE__
+  labels: { app: seaweedfs, component: volume }
+spec:
+  serviceName: seaweedfs-volume
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app: seaweedfs, component: volume }
+  template:
+    metadata:
+      labels: { app: seaweedfs, component: volume }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, fsGroup: 1000 }
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      affinity:
+        podAntiAffinity: # one volume server per node so a node loss = at most 1 replica
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels: { app: seaweedfs, component: volume }
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: volume
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/cometchat-enterprise:seaweedfs-4.37@sha256:f898c91e42d7da5f4bb13f1efd424ff03ba85b420312eb929708a384e8a8b03d # PIN to a digest for client delivery
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          command: ["weed"]
+          args:
+            - "-logtostderr"
+            - "volume"
+            - "-mserver=seaweedfs-master-0.seaweedfs-master:9333,seaweedfs-master-1.seaweedfs-master:9333,seaweedfs-master-2.seaweedfs-master:9333"
+            - "-ip=$(POD_NAME).seaweedfs-volume"
+            - "-ip.bind=0.0.0.0"
+            - "-port=8080"
+            - "-dir=/data"
+            - "-max=100" # volume-count cap (the fix for 'No free volumes'); raise with disk size
+            - "-dataCenter=dc1"
+            - "-rack=default"
+          ports:
+            - { containerPort: 8080, name: http }
+            - { containerPort: 18080, name: grpc }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: __STORAGE_CLASS__ # ENCRYPTED storage class for data-at-rest (disk layer)
+        resources: { requests: { storage: __VOLUME_SIZE__ } } # e.g. 100Gi
