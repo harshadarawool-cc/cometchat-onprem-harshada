@@ -1,7 +1,14 @@
-# One-shot: create the isolated `etherpad` database + `etherpaduser` (mysql_native_password,
-# for Etherpad 1.8.x's legacy driver) on the mgmt MySQL (10.20.10.41). Root creds are read
-# from the EXISTING mgmtapi-env secret (.env) inside the pod — never on a command line.
-# Idempotent (IF NOT EXISTS). Delete + re-apply to re-run.
+# One-shot: create the isolated `etherpad` database + `etherpaduser` (mysql_native_password) on the mgmt
+# MySQL, AND pre-create Etherpad's `store` table with a WIDE key column. Runs in phase_editors, BEFORE the
+# document-embed pod (phase_apps) — so it must lay down everything Etherpad needs at first boot:
+#   • DB + user + grants
+#   • store.key = VARCHAR(512): CometChat padIds are ~196-char JWTs, so pad-write keys (pad:<padId>:revs:…)
+#     overflow ueberdb2's stock VARCHAR(100) -> "Data too long for column 'key'" -> the pad never saves.
+#     We PRE-CREATE the table at 512 so ueberdb2's `CREATE TABLE IF NOT EXISTS` adopts it as-is on a FRESH
+#     cluster (no manual step); the ALTER below additionally widens a table a PRIOR deploy already made at
+#     100. Pure schema (data layer), NO image/code patch — this is why document survives a destroy+recreate.
+# Root creds are read from the EXISTING mgmtapi-env secret (.env) inside the pod — never on a command line.
+# Idempotent (IF NOT EXISTS / MODIFY). Delete + re-apply to re-run.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -32,12 +39,23 @@ spec:
               ALTER USER 'etherpaduser'@'%' IDENTIFIED WITH mysql_native_password BY '${EPW}';
               GRANT ALL PRIVILEGES ON etherpad.* TO 'etherpaduser'@'%';
               FLUSH PRIVILEGES;
+              USE etherpad;
+              CREATE TABLE IF NOT EXISTS store ( \`key\` VARCHAR(512) NOT NULL COLLATE utf8mb4_bin, \`value\` LONGTEXT COLLATE utf8mb4_bin NOT NULL, PRIMARY KEY (\`key\`) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
               SQL
               # Etherpad creates the `store` table on first boot; force utf8mb4 to avoid the
               # "table is not configured with charset utf8mb4" warning + pad crashes on emoji/CJK.
               mysql -h "$DBHOST" -u "$ROOT_USER" -p"$ROOT_PW" etherpad \
                 -e "ALTER TABLE store CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;" 2>/dev/null \
                 && echo "store table -> utf8mb4" || echo "(store table not created yet; re-run after Etherpad boots)"
+              # CometChat padIds are ~196-char signed JWTs, so Etherpad's pad-write keys (pad:<padId>:revs:…)
+              # overflow ueberdb2's default store.key VARCHAR(100) -> "Data too long for column 'key'" -> the
+              # socket.io write fails and the pad never saves (stuck "Loading…"). Widen the column. ueberdb2
+              # uses CREATE TABLE IF NOT EXISTS, so it never widens a PRE-EXISTING table AND does not re-shrink
+              # it — verified live. Pure schema migration (data layer), NO image/code patch.
+              mysql -h "$DBHOST" -u "$ROOT_USER" -p"$ROOT_PW" etherpad \
+                -e "ALTER TABLE store MODIFY \`key\` VARCHAR(512) COLLATE utf8mb4_bin;" 2>/dev/null \
+                && echo "store.key -> VARCHAR(512)" || echo "(store table not created yet; re-run after Etherpad boots)"
+              mysql -h "$DBHOST" -u "$ROOT_USER" -p"$ROOT_PW" etherpad -e "SHOW COLUMNS FROM store LIKE 'key';" 2>/dev/null || true
               echo "OK: etherpad DB + etherpaduser ready"
           volumeMounts:
             - { name: mgmt, mountPath: /mgmt, readOnly: true }

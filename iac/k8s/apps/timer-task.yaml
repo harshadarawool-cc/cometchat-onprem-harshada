@@ -1,0 +1,64 @@
+# timer-task — metrics/analytics tier worker. SAME image as metrics-pro (pro-metrics), run as a
+# WORKER (no Service / no route / no NodePort / no nginx sidecar). Runs the monthly-user-count rollup.
+#
+# The pro-metrics timer entry is src/scripts/monthly_user_count.jsc — a ONE-SHOT batch: it computes the
+# running month's user count -> MySQL `metrics`, then EXITS cleanly (the insert is an upsert, so re-runs
+# just refresh the running count). The handoff's values/timer-task.yaml models this as a replicas:1
+# Deployment that re-runs the one-shot daily (`... ; sleep 86400`).
+#
+# IMPORTANT — the NEW obfuscated pro-metrics image is DISTROLESS (no /bin/sh): the live metrics-pro runs
+# the image's default CMD with NO command override, and the chart's `commandExec` path exists precisely for
+# "distroless images (no /bin/sh)". So the handoff's literal `sh -c "while true; do ...; sleep 86400; done"`
+# CANNOT run here (it would CrashLoop on exec: sh not found). We therefore keep the EXACT same bytenode/.jsc
+# one-shot the handoff specifies, but drive the daily loop INSIDE node (exec-form, no shell): run it once at
+# boot, then re-run every 86_400_000 ms. The require-cache entry for the .jsc is purged each pass so the
+# batch re-executes; errors are caught so one failed run doesn't kill the long-running worker.
+#
+# Env: shares metrics-pro-env (populated: DB_DATABASE=metrics + DB_OLD_DATABASE=analytics_logs, Redis,
+# PCU_SETS_APPIDS) — the same secret the live metrics-pro uses. replicas:1 (singleton — no double-tally).
+# DEV/TODO: this is a scheduled job; a CronJob is the "correct" shape, but a Deployment is used here so the
+# worker is continuously present/log-tailable (kubectl logs deploy/timer-task). Confirm cadence with dev.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: timer-task
+  namespace: cometchat
+  labels: { app.kubernetes.io/name: timer-task }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: timer-task }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: timer-task }
+    spec:
+      restartPolicy: Always
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      containers:
+        - name: timer-task
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:3a127b3334712094c1401f7c8380b83e97ef829b358175b799cae596ed0ec12d  # :pro-metrics (latest) — SAME digest as metrics-pro
+          workingDir: /app
+          # exec-form (distroless: no /bin/sh). Daily loop driven in-process; the .jsc batch itself is the
+          # EXACT one-shot the handoff specifies: require('bytenode'); require('.../monthly_user_count.jsc').
+          command:
+            - node
+            - --max-old-space-size=4096
+            - -e
+            - |
+              require('bytenode');
+              const P = '/app/src/scripts/monthly_user_count.jsc';
+              function run() {
+                try {
+                  delete require.cache[require.resolve(P)];
+                  console.log('[timer-task] running monthly_user_count rollup @ ' + new Date().toISOString());
+                  require(P);
+                } catch (e) {
+                  console.error('[timer-task] rollup error:', e && e.message ? e.message : e);
+                }
+              }
+              run();
+              setInterval(run, 86400000); // daily (best-guess cadence — confirm with dev)
+          envFrom: [{ secretRef: { name: metrics-pro-env } }]
+          resources:
+            requests: { cpu: 128m, memory: 512Mi }
+            limits:   { cpu: "1",  memory: 2Gi }

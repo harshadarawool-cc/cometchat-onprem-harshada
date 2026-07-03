@@ -35,9 +35,11 @@ haproxy_backends:
   - name: analytics        # analytics-api / metrics
     nodeport: 30447
     sni_exact: ['metrics-onprem.DOMAIN']
-  - name: seaweedfs        # S3 object store (media/data/files-onprem, per-app media)
+  - name: seaweedfs        # S3 object store (media/data/files-onprem, assets, per-app media)
     nodeport: 30449
-    sni_regex: '(^|.*\.)(media|data|files)-onprem\.DOMAIN$'
+    # assets.<domain> serves sample-app avatars + static assets; seaweedfs-edge nginx rewrites
+    # ^/(.*) -> /assets/$1 (bucket-inject) since SeaweedFS S3 is path-style.
+    sni_regex: '(^|.*\.)(media|data|files)-onprem\.DOMAIN$|^assets\.DOMAIN$'
   - name: document-embed   # Etherpad editor iframe
     nodeport: 30450
     sni_exact: ['document-embed-onprem.DOMAIN']

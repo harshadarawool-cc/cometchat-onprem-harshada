@@ -9,7 +9,9 @@
 #   ./deploy.sh            # early: secrets + manifests + buckets + status  (run in phase_storage)
 #   ./deploy.sh secrets    # (re)create secrets (SSE-KEK, S3 identities, console) + refresh ECR token
 #   ./deploy.sh manifests  # apply masters -> volumes -> filer -> console -> alias Svc -> Ingress
-#   ./deploy.sh buckets    # ensure the 5 buckets exist (weed shell; internal — no DNS needed)
+#   ./deploy.sh buckets    # ensure the 5 buckets exist + seed repo sample-app avatars + default stickers (weed shell/filer.copy; internal — no DNS needed)
+#   ./deploy.sh avatars    # (re)upload the repo's sample-app avatars -> assets/sampleapp/v2 (internal filer.copy; idempotent)
+#   ./deploy.sh stickers   # (re)upload the repo's default sticker packs -> stickers/<pack> (internal filer.copy; idempotent)
 #   ./deploy.sh seed       # LATE: run the in-cluster seed Job (needs external DNS+cert; after phase_certs)
 #   ./deploy.sh status     # pods / svc / ingress + console URL & password
 #   ./deploy.sh destroy    # remove ONLY the seaweedfs/cometchatfs objects (NOT the ns)
@@ -190,6 +192,76 @@ phase_buckets() {  # ensure the 5 buckets exist (idempotent; via `weed shell` �
   kc -n "$NS" exec seaweedfs-filer-0 -- sh -c "printf '${mk}s3.bucket.list\n' | weed shell -master=$MASTER" 2>/dev/null \
     | sed 's/^/    /' || warn "bucket create reported an error (may already exist)"
   ok "buckets ensured: $PRIVATE_BUCKETS $PUBLIC_BUCKETS  (ACLs applied by the seed Job)"
+  phase_sampleapp_seed   # ensure the repo's canonical sample-app avatars are in the assets bucket (internal, no DNS)
+  phase_stickers_seed    # ensure the repo's default sticker packs are in the stickers bucket (internal, no DNS)
+}
+
+# Sample-app avatars -> assets/sampleapp/v2/{users,groups}. Sourced from THIS REPO (seed/sampleapp/),
+# NOT the baked 60-seed-job image (which shipped an INCOMPLETE set — only groups 1-2). Uploaded via
+# `weed filer.copy` to the filer's HTTP API (localhost:8888/buckets/assets/...) — internal, so it needs
+# NO external DNS/cert (runs EARLY in phase_buckets, unlike the LATE 60-seed-job). These are the exact
+# avatars the dashboard/sample-app request as https://assets.<domain>/sampleapp/v2/users|groups/*.webp
+# (mirrors assets.cometchat.io/sampleapp/v2/*). Public-read is granted by the `anonymous` identity on the
+# `assets` bucket (s3config.json). Idempotent: filer.copy overwrites in place; re-running just re-uploads
+# the same bytes. aws-cli is deliberately NOT used here (chunked S3 PUT corrupts small objects — see docs).
+phase_sampleapp_seed() {
+  ensure_tunnel
+  local SRC="$HERE/seed/sampleapp/v2"
+  [ -d "$SRC/users" ] && [ -d "$SRC/groups" ] || { warn "sample-app avatar seed dir missing ($SRC) — skipping"; return 0; }
+  local kind f base n=0
+  for kind in users groups; do
+    for f in "$SRC/$kind"/*.webp; do
+      [ -e "$f" ] || continue
+      base="$(basename "$f")"
+      # Stream the bytes via base64 over STDIN (kc exec -i) — NOT argv. Interpolating a large avatar's
+      # base64 into `sh -c "..."` blows ARG_MAX ("argument list too long"). The in-pod shell decodes
+      # stdin to a temp file, then filer.copy uploads it to the assets bucket at the exact app-requested key.
+      if ! base64 < "$f" | kc -n "$NS" exec -i seaweedfs-filer-0 -- sh -c \
+            "base64 -d > /tmp/$base && \
+             weed filer.copy /tmp/$base http://localhost:8888/buckets/assets/sampleapp/v2/$kind/ >/dev/null 2>&1 && \
+             rm -f /tmp/$base"; then
+        die "sample-app avatar upload FAILED for $kind/$base"
+      fi
+      n=$((n+1))
+    done
+  done
+  ok "sample-app avatars seeded from repo -> assets/sampleapp/v2/{users,groups} ($n objects, public-read via anonymous identity)"
+}
+
+# Default sticker packs -> stickers/<pack>/<file>.png. Sourced from THIS REPO (seed/stickers/),
+# the 202 PNGs across 14 packs (bear/vampire/pirate/penguin/…). The `stickers-default` Mongo
+# collection points sticker URLs at media-onprem/stickers/<pack>/<file>.png (path-style), so the
+# extension's sticker picker resolves them out of the public `stickers` bucket. Uploaded via
+# `weed filer.copy` to the filer's HTTP API (localhost:8888/buckets/stickers/...) — internal, so it
+# needs NO external DNS/cert (runs EARLY in phase_buckets, unlike the LATE 60-seed-job). Public-read
+# is granted by the `anonymous` identity on the `stickers` bucket (s3config.json / ANON_READ), so no
+# per-object ACL call is needed. Idempotent: filer.copy overwrites in place; re-running re-uploads the
+# same bytes. aws-cli is deliberately NOT used here (its chunked/CRC32 S3 PUT corrupts small PNGs on
+# this build — same reason as the avatars above; replaces the old aws-cli sticker-seed.job.yaml).
+phase_stickers_seed() {
+  ensure_tunnel
+  local SRC="$HERE/seed/stickers"
+  [ -d "$SRC" ] || { warn "default sticker seed dir missing ($SRC) — skipping"; return 0; }
+  local pack f base n=0 p
+  for p in "$SRC"/*/; do
+    [ -d "$p" ] || continue
+    pack="$(basename "$p")"
+    for f in "$p"*.png; do
+      [ -e "$f" ] || continue
+      base="$(basename "$f")"
+      # Stream the bytes via base64 over STDIN (kc exec -i) — NOT argv (large arg lists blow ARG_MAX).
+      # The in-pod shell decodes stdin to a temp file, then filer.copy uploads it to the stickers
+      # bucket at stickers/<pack>/<file>.png (path-style; the exact key the Mongo URLs reference).
+      if ! base64 < "$f" | kc -n "$NS" exec -i seaweedfs-filer-0 -- sh -c \
+            "base64 -d > /tmp/$base && \
+             weed filer.copy /tmp/$base http://localhost:8888/buckets/stickers/$pack/ >/dev/null 2>&1 && \
+             rm -f /tmp/$base"; then
+        die "default sticker upload FAILED for $pack/$base"
+      fi
+      n=$((n+1))
+    done
+  done
+  ok "default stickers seeded from repo -> stickers/<pack>/<file>.png ($n objects across $(ls -d "$SRC"/*/ 2>/dev/null | wc -l | tr -d ' ') packs, public-read via anonymous identity)"
 }
 
 phase_seed() {  # LATE: in-cluster seed Job. Bundled assets -> public buckets + sets public-read ACLs. Idempotent
@@ -228,9 +300,11 @@ case "${1:-all}" in
   all)         phase_secrets; phase_manifests; phase_buckets; phase_status ;;   # EARLY (no seed — that's LATE)
   secrets)     phase_secrets ;;
   manifests)   phase_manifests ;;
-  buckets)     phase_buckets ;;
+  buckets)     phase_buckets ;;                                                  # also seeds repo sample-app avatars + default stickers (internal)
+  avatars)     phase_sampleapp_seed ;;                                           # just the repo sample-app avatars -> assets bucket
+  stickers)    phase_stickers_seed ;;                                            # just the repo default sticker packs -> stickers bucket
   seed)        phase_seed ;;                                                     # LATE (after phase_certs)
   status)      phase_status ;;
   destroy)     phase_destroy ;;
-  *) die "usage: $0 [all|secrets|manifests|buckets|seed|status|destroy]" ;;
+  *) die "usage: $0 [all|secrets|manifests|buckets|avatars|stickers|seed|status|destroy]" ;;
 esac

@@ -313,6 +313,92 @@ Legend for each entry: **Symptom → Root cause → Fix → Baked into.**
 
 ---
 
+## N. TiDB single-node OOM-thrash → VM wedged, whole chat app down (2026-07-03)
+
+- **Symptom:** every chatapi RoadRunner worker crashed on each DB query (`worker stopped, and will be
+  restarted`); all client REST (`/v3.0/users` …) returned `000`. Direct probe to TiDB `10.24.10.51:4000`:
+  `ERROR 2013 (HY000): Lost connection … waiting for initial communication packet` — TCP accepted, **no MySQL
+  handshake**. SSH to the VM also hung (`Connection timed out during banner exchange`) → wedged at the OS
+  level, not just TiDB.
+- **Root cause:** the TiDB VM was **`e2-medium` (4 GB)**, running **TiDB + TiKV + PD + TiProxy co-located as
+  Docker containers** (`pd0`/`tikv0`/`tidb`/`tiproxy`, NOT tiup/systemd). TiKV's default block cache alone
+  wants ~2 GB; under load the box OOM-thrashed into swap-death, so neither `sshd` nor `tidb-server` could
+  complete a handshake. chatapi was the **victim**, not the cause — restarting chatapi did nothing.
+- **Fix (config-only, no image patch):** power-cycle + right-size in one reboot —
+  `gcloud compute instances stop` (force; works on a wedged VM without SSH) → `set-machine-type e2-standard-2`
+  (2 vCPU / **8 GB**) → `start`. On boot the containers auto-start; TiKV replays its Raft log (~30–60 s) then
+  serves SQL. IaC updated so it never ships undersized again: `customer.conf` `TIDB_TYPE="e2-standard-2"` +
+  `terraform.tfvars` `tidb.machine_type`. (TF `variable "tidb"` default was already `e2-standard-4`; the
+  `e2-medium` was a cost override in `customer.conf`.)
+- **Verify:** probe flips `ERROR 2013` (no handshake) → `ERROR 1045 Access denied` (**handshake + auth OK**);
+  `free -h` shows 8 GB; `docker ps` all Up; chatapi rollout-restart → `2/2`, `0` restarts, clean workers;
+  `/v3.0/users → 200` with real rows straight from TiDB. Data survives the hard stop (TiKV RocksDB WAL fsync'd).
+- **Note:** single-node TiDB has no failover (chatapi hard-points `DB_HOST=10.24.10.51`). Real HA (PD+TiKV+TiDB
+  multi-node) is the deferred pass — see `docs/HA-AND-SIZING-PLAN.md`.
+
+---
+
+## O. document-embed (Etherpad 3.3.2) — the image's entrypoint launches a file that isn't there (2026-07-03)
+
+- **Symptom:** document-embed CrashLoops. The DB gate now passes (`MySQL is ready` → `Database ready` →
+  `Starting Etherpad...`) then `Error: Cannot find module
+  '/opt/etherpad-lite/node_modules/ep_etherpad-lite/node/server.js'` (MODULE_NOT_FOUND), Node.js v24.
+- **Root cause:** the image (`document-embed@sha256:f56a2500…`, from Azure ACR) is **Etherpad 3.3.2 —
+  TypeScript**. Only `src/node/server.ts` ships (no compiled `server.js`); `node_modules/ep_etherpad-lite`
+  is a symlink → `../src`. But the image's `entrypoint.sh` hardcodes `exec node
+  .../ep_etherpad-lite/node/server.js` — the **1.x** launch path. It runs a `.js` that doesn't exist. This
+  is inside the image; our config/mounts are at `/app` while the app lives at `/opt/etherpad-lite`.
+- **Fix (config-only, no image patch):** override the container `command` to the image's OWN correct
+  launcher — `sh -c "cd /opt/etherpad-lite/src && exec node --require tsx/cjs node/server.ts"` (= its
+  `pnpm prod`; `tsx@4.22.4` is present in the pnpm store). Etherpad reads settings.json via `${ENV}`
+  substitution → set `DB_TYPE/DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASS/DB_CHARSET/PORT`, `DB_PASS` from the
+  `etherpad-db` secret. Widen probes (Etherpad 3.x boots ~25-30s — plugin migration runs every start).
+  All in `k8s/apps/doc-whiteboard.yaml`.
+- **Apply gotcha:** an earlier live `kubectl patch` left stale env (`DB_PASS` with a literal *value*) on the
+  Deployment; `kubectl apply` strategic-merges env by name → collides your `DB_PASS: valueFrom` with the
+  live `value` → `may not be specified when value is not empty`. Fix: `kubectl delete deploy document-embed`
+  then re-apply (clean create, no merge).
+- **Verify:** pod `3/3`; log `HTTP server listening` + `You can access your Etherpad instance`; editor HTML
+  over the pod sidecar; `document-embed-onprem/ → HTTP 200` through the HAProxy edge.
+- **Then two more limits surfaced (same day), both caused by CometChat's ~196-char signed-JWT padId:**
+  - **(load) HTTP 404 `Such a padname is forbidden`:** Etherpad's `PadManager` caps padId at 50 chars
+    (`[^$]{1,50}`). Fix: `sed 's/{1,50}/{1,500}/' node/db/PadManager.ts` in the container `command`. This is
+    an **app-code regex with no config/DB/network lever** — the only remaining in-container edit. The clean
+    end-state is CometChat emitting a SHORT padId (tracked upstream); until then the sed is unavoidable.
+  - **(save) `Data too long for column 'key'` → socket.io 502, pad stuck "Loading…":** pad-write keys
+    (`pad:<padId>:revs:…`) overflow ueberdb2's stock `store.key VARCHAR(100)`. **Fixed at the DATA layer, no
+    code patch:** `k8s/etherpad-db-init.job.yaml` **pre-creates** `store` with `key VARCHAR(512)` (so a FRESH
+    Etherpad adopts it via `CREATE TABLE IF NOT EXISTS`) **and** `ALTER`s a table a prior deploy already made
+    at 100. ueberdb2 does NOT re-shrink; the in-code `key.length>100` guard never fires (the MySQL column was
+    the real limit) — so the ueberdb2 source sed was removed.
+- **Reproducibility (destroy+recreate):** all three fixes are in the IaC — entrypoint + padId sed in
+  `k8s/apps/doc-whiteboard.yaml` (applied by `phase_apps`), key width in `k8s/etherpad-db-init.job.yaml`
+  (run by `phase_editors`, which executes **before** `phase_apps`). No manual step, no seed dump.
+
+---
+
+## P. Whiteboard accessToken, thumbnail timing, and the v2/v3 non-issue (2026-07-03)
+
+- **Whiteboard `Access denied! Wrong accessToken!`:** the whiteboard server requires the client's
+  `?accesstoken=<x>` to **match** `backend.accessToken` in its config. OUR extensions build (`25b229c1`)
+  **appends `&accesstoken=board`** to the embed URL (confirmed in a captured request), so `accessToken` MUST
+  be `"board"` in the `whiteboard-config` ConfigMap. **Do NOT copy the handoff's `""`** — the handoff blanked
+  it because ITS extensions build sent no token; ours differs, and blanking makes `"board" != ""` → denied.
+  In `k8s/apps/doc-whiteboard.yaml`.
+- **Thumbnail "generation fails" — it doesn't:** the object serves (`200 image/png`), CORS is correct
+  (`Access-Control-Allow-Origin: <origin>`, preflight 200), and the thumbnail-generator produces
+  small/medium/large for every image (`Metadata: { thumbnail: TRUE }`, zero errors). The visible break is
+  **timing**: the generator is a **cron (~25s, no real-time SQS)**, so immediately after upload the thumbnail
+  404s and the browser caches the miss. If instant thumbnails are needed, tighten
+  `EXTENSIONS.thumbnail-generator.CRON_SCHEDULE` in the extensions config. Not a bug.
+- **v2/v3 app version — investigated, NOT flipped:** the app is `version=3` (v3-only) and the extensions
+  validate auth via a hardcoded `/v2.0/auth_tokens`, which *suggested* a v3→v2 flip. But the document flow
+  **disproved** it: the widget holds a valid **signed padId**, so `/v1/create` already SUCCEEDS — create is
+  not blocked. The real document blockers were the padId/store.key limits (§O). The flip was **not applied**
+  (and would have been a live mgmt-DB write for nothing).
+
+---
+
 ## K. The mistakes — do NOT repeat (checklist the script enforces)
 
 1. **Don't** use `pd-ssd`/`pd-balanced` while the old infra holds the SSD quota → `pd-standard`. *(A1)*
@@ -330,3 +416,13 @@ Legend for each entry: **Symptom → Root cause → Fix → Baked into.**
 13. **Don't** trust `.env` for chatapi's S3 endpoint — `k8s/chatapi.yaml` sets it as a real env var
     that **overrides** the `.env`. One store, one identity; verify with a server-side PUT, not a browser PUT. *(L1)*
 14. **Don't** run two SeaweedFS stores — there is ONE: `k8s/seaweedfs/` in ns `cometchat`. *(L2)*
+15. **Don't** size the TiDB VM below **8 GB** (`e2-standard-2`) — co-located TiDB+TiKV+PD OOM-thrash the box
+    into an unreachable wedge on `e2-medium`/4 GB, taking the whole chat app down with it. *(N)*
+16. **Don't** trust a vendor image's `entrypoint.sh` — the Etherpad 3.3.2 (TS) image launches a non-existent
+    1.x `server.js`; override `command` to `node --require tsx/cjs node/server.ts` (config-only). *(O)*
+17. **Don't** widen Etherpad's `store.key` by patching ueberdb2 — **pre-create** the `store` table at
+    `VARCHAR(512)` in `etherpad-db-init` BEFORE Etherpad boots (CometChat padIds overflow the stock 100 → the
+    pad won't save). Data-layer fix, survives destroy+recreate. *(O)*
+18. **Don't** blank the whiteboard `accessToken` — OUR extensions sends `&accesstoken=board`, so the config
+    must be `"board"` (blank → "Access denied! Wrong accessToken!"). The handoff's `""` is for a build that
+    sent no token — not ours. *(P)*

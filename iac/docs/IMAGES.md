@@ -13,7 +13,7 @@ Registry: `894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images` �
 | mgmtapi | `:mgmt` | `1712df2f…a5c4` | `k8s/mgmtapi.yaml` |
 | dashboard | `:customer-dashboard` | `28078c3b…3457` | `k8s/dashboard.yaml` |
 | analytics-api | `:analytics` | `8ae95a99…9433` | `k8s/apps/no-ref-apps.yaml` |
-| metrics-pro (+ metrics-pro-timer) | `:pro-metrics` | `3a127b33…c12d` | `k8s/apps/no-ref-apps.yaml`, `k8s/apps/metrics-pro-timer.yaml` |
+| metrics-pro (+ timer-task) | `:pro-metrics` | `3a127b33…c12d` | `k8s/apps/no-ref-apps.yaml`, `k8s/apps/timer-task.yaml` |
 | extensions | `:extensions` (node22-fix, pinned) | `c826c46e…35e72` | `k8s/apps/no-ref-apps.yaml` |
 | globalwebhooks | (webhooks) | `96a7e73b…bd45` | `k8s/apps/globalwebhooks.yaml` |
 | notificationscore | `:notifications-core` | `2d23ab53…78a61` | `k8s/apps/notificationscore.yaml` |

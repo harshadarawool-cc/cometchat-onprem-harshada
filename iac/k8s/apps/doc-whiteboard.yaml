@@ -1,22 +1,16 @@
 # Collaborative editors behind the extensions service:
-#   document-embed = CometChat-customised Etherpad 1.8.4 (:9001) — pads in mgmt MySQL (etherpad DB)
+#   document-embed = CometChat Etherpad 3.3.2 / TypeScript (:9001) — pads in mgmt MySQL (etherpad DB)
 #   whiteboard     = cracker0dks/whiteboard v1.0.0 (:9000) — stateless, accessToken "board"
 #
-# ⚠️ KNOWN-BLOCKED (non-core): document-embed does NOT come up yet. Its Etherpad image's entrypoint
-#   (/opt/etherpad-lite/entrypoint.sh) has a fragile startup chain. FULL FIX PATH traced live (2026-07-02):
-#     1. The wait connects as MySQL **root**, reading DB_HOST/DB_PORT + MYSQL_ROOT_PASSWORD (defaults
-#        127.0.0.1 / rootpass). So set on the etherpad container:
-#          DB_HOST=<mysql VM>  DB_PORT=3306  DB_NAME=etherpad  DB_USER=etherpaduser
-#          DB_PASS=<etherpaduser pw from document-embed-settings>   MYSQL_ROOT_PASSWORD=<mysql root pw>
-#        (root pw = same value mgmtapi uses as DB_PASSWORD; the entrypoint then self-creates the DB+user).
-#     2. Its mariadb client VERIFIES TLS and rejects MySQL 8's self-signed cert (ERROR 2026). Needs a
-#        client cnf that skips verification — mount at $HOME/.my.cnf (HOME=/home/etherpad):
-#          [client]\n  (the exact working ssl directive still TBD: skip-ssl / ssl=0 / ssl-verify-server-cert=0)
-#     3. RELAX the livenessProbe below (it kills the pod at 40s while the wait loops, causing CrashLoop +
-#        hammering MySQL until the node IP is max_connect_errors-blocked — run FLUSH HOSTS if that happens).
-#   TO PRODUCTIONIZE: have deploy.sh phase_editors create a `document-embed-dbenv` secret with the 6 vars
-#   above + this .my.cnf ConfigMap, add `envFrom` + the mount here, and relax/remove the liveness probe.
-#   The socat db-proxy sidecar (below) is only needed if the wait stays on 127.0.0.1.
+# ✅ WORKING (fixed 2026-07-03). The image's stock entrypoint.sh hardcodes
+#   `node .../ep_etherpad-lite/node/server.js` — a path that only exists in OLD (1.x) Etherpad. This build
+#   is Etherpad 3.3.2 (TypeScript): only node/server.ts ships (no compiled .js), so the stock entrypoint
+#   CrashLoops with MODULE_NOT_FOUND. FIX (config-only, no image patch): the document-embed container below
+#   overrides `command` to the image's OWN correct launcher — `node --require tsx/cjs node/server.ts`
+#   (= its `pnpm prod`) — and sets DB_* env so Etherpad's settings.json (${ENV}-substituted) points at our
+#   provisioned etherpad DB. DB_PASS comes from the `etherpad-db` secret. Verified: boots, runs migrations,
+#   listens :9001, serves the editor over document-embed-onprem (HTTP 200 through the edge).
+#   The socat db-proxy sidecar (below) is now OPTIONAL — DB_HOST points straight at the mgmt MySQL VM.
 # The /v1/create APIs (document-onprem / whiteboard-onprem) are served by the EXTENSIONS service,
 # not these editors. These two only serve the editor iframes (document-embed-onprem / whiteboard-embed-onprem).
 # Images are pinned by digest from OUR ECR (mirrored from akamai Harbor — no VPN needed).
@@ -28,8 +22,11 @@ kind: ConfigMap
 metadata: { name: whiteboard-config, namespace: cometchat }
 data:
   config.default.yml: |
-    # Collaborative whiteboard config. accessToken is the shared secret with the extensions
-    # service (extensions signs whiteboard URLs with it). Keep "board" unless changed in both places.
+    # Collaborative whiteboard config. accessToken is a SERVER-INTERACTION GATE: the whiteboard server
+    # requires the client's ?accesstoken=<x> to MATCH this value. OUR extensions build (25b229c1) appends
+    # `&accesstoken=board` to the embed URL (confirmed in a captured request), so this MUST be "board" —
+    # blanking it makes "board" != "" => "Access denied! Wrong accessToken!". (The handoff blanked it
+    # because ITS extensions build sent no accesstoken; ours differs — verified empirically 2026-07-03.)
     backend:
       accessToken: "board"
       enableWebdav: false
@@ -92,17 +89,47 @@ spec:
       imagePullSecrets: [{ name: ecr-pull-secret }]
       containers:
         - name: document-embed
-          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:14fdbea7cfa6b0dad03324226369d1ad5d3b8466a7480dcde74b4fe1ceb1630b  # :document-embed (user-pinned 2026-07-02)
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:f56a25001dc7a27c32761aa30a83107deee67de8774051cef03cf8d87885adf0  # :document-embed (user-pinned 2026-07-03; source Azure ACR cometchatakstest.azurecr.io/cometchat-onprem/document-embed — MUST be mirrored to this ECR repo or it ImagePullBackOffs)
           imagePullPolicy: IfNotPresent
+          # The image's entrypoint.sh hardcodes `node .../ep_etherpad-lite/node/server.js` — a path that
+          # only exists in OLD (1.x) Etherpad. This is Etherpad 3.3.2 (TypeScript): only node/server.ts
+          # ships, so the stock entrypoint CrashLoops (MODULE_NOT_FOUND). Override to the image's OWN correct
+          # launcher (= `pnpm prod` = node --require tsx/cjs node/server.ts). Config-only, no image patch.
+          # ONE remaining in-container edit: Etherpad's PadManager caps padId at 50 chars ({1,50}); CometChat
+          # padIds are ~196-char signed JWTs -> HTTP 404 "Such a padname is forbidden". Widen to 500. This is
+          # an app-code regex with no config/DB lever — the clean end-state is CometChat emitting a SHORT
+          # padId (tracked as an upstream image bug). The store-KEY width ("Data too long for column 'key'"
+          # on save) is fixed at the DATA layer instead: etherpad-db-init.job.yaml widens store.key to
+          # VARCHAR(512) on the live DB — no ueberdb2 code patch needed (the in-code guard never fires; the
+          # MySQL column width was the real limit).
+          command:
+            - sh
+            - -c
+            - |
+              cd /opt/etherpad-lite/src
+              sed -i 's/{1,50}/{1,500}/' node/db/PadManager.ts 2>/dev/null || true
+              exec node --require tsx/cjs node/server.ts
+          # Etherpad resolves its DB from settings.json via ${ENV} substitution -> point at OUR provisioned
+          # etherpad DB (phase_editors + etherpad-db-init created it on mgmt MySQL). DB_PASS = etherpad-db secret.
           env:
             - { name: NODE_ENV, value: production }
+            - { name: DB_TYPE, value: mysql }
+            - { name: DB_HOST, value: "10.24.10.41" }   # mgmt MySQL VM (direct; db-proxy sidecar now optional)
+            - { name: DB_PORT, value: "3306" }
+            - { name: DB_NAME, value: etherpad }
+            - { name: DB_USER, value: etherpaduser }
+            - { name: DB_CHARSET, value: utf8mb4 }
+            - { name: PORT, value: "9001" }
+            - name: DB_PASS
+              valueFrom: { secretKeyRef: { name: etherpad-db, key: password } }
           ports: [{ containerPort: 9001, name: http }]
           volumeMounts:
             - { name: settings, mountPath: /app/settings.json, subPath: settings.json, readOnly: true }
             - { name: var, mountPath: /app/var }   # minify cache; pads live in MySQL
-          readinessProbe: { tcpSocket: { port: 9001 }, initialDelaySeconds: 15, periodSeconds: 10 }
-          livenessProbe:  { tcpSocket: { port: 9001 }, initialDelaySeconds: 40, periodSeconds: 20 }
-          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 512Mi } }
+          # Etherpad 3.x boots in ~25-30s (plugin migration on every start) — give probes headroom.
+          readinessProbe: { tcpSocket: { port: 9001 }, initialDelaySeconds: 30, periodSeconds: 10, failureThreshold: 12 }
+          livenessProbe:  { tcpSocket: { port: 9001 }, initialDelaySeconds: 90, periodSeconds: 20 }
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 768Mi } }
         # db-proxy: the Etherpad image's startup gate waits on MySQL at 127.0.0.1:3306, so forward that
         # to the real MySQL VM. IP is this cluster's mysql_host (10.24.10.41 = SUBNET_DATA + .41);
         # update if SUBNET_DATA_CIDR changes. (socat entrypoint = socat, so args are socat args — no shell.)

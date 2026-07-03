@@ -2,6 +2,12 @@
 # (AI-agent icons, sample-app avatars, default stickers, VCB export zips) and creates the
 # private `uploads` bucket. Idempotent: re-running skips any prefix that already has objects.
 #
+# NOTE (default stickers): the 202 default sticker PNGs (14 packs) are ALSO seeded EARLY and
+# authoritatively by deploy.sh `phase_stickers_seed` (repo seed/stickers/ -> stickers/<pack>/<file>.png
+# via internal `weed filer.copy`, no DNS/cert needed). That repo copy is the source of truth — this
+# late image-baked job is a belt-and-suspenders fallback for the same stickers/ prefix and is a no-op
+# once phase_stickers_seed has populated the bucket (idempotent skip-if-present).
+#
 # RUN ORDER: apply this LAST — after cometchatFS + edge nginx are up and DNS resolves
 # media-onprem.cometchat-cluster-2.in (the seeder signs S3 requests against that host, matching S3_EXTERNAL_URL).
 # Uses the CONSOLE (Admin) S3 key from the cometchatfs-env secret (apps key can't create buckets).

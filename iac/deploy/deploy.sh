@@ -313,7 +313,12 @@ phase_seed() {
   [ -n "${MONGO_DUMP_SRC:-}" ] && ev_mongo="-e mongo_dump_src=$MONGO_DUMP_SRC"
   # shellcheck disable=SC2086  # intentional word-split: $ev_* is empty or "-e key=val"
   # 1) MySQL dumps: pulsecustomerdb + onprem-features overlay + metrics + analytics (in-repo dumps/).
-  apb restore-mysql-dumps.yml $ev_mysql || warn "mysql restore: inspect output (restore-mysql-dumps.yml)"
+  #    The metrics.sql -> `metrics` and analytics.sql -> `analytics_logs` dumps SHIP IN-REPO (dumps/) and
+  #    are REQUIRED: metrics-pro/analytics-api read those schemas but never create them, so a missing or
+  #    partial load = metrics/analytics HTTP 500 in the dashboard. restore-mysql-dumps.yml already fails
+  #    loudly (COUNT-GUARD assert: metrics/analytics_logs each need >= 15 tables) if the load is short, so
+  #    we FAIL-FAST here (|| die) — if the seed errors, the deploy stops (do NOT ship a broken metrics tier).
+  apb restore-mysql-dumps.yml $ev_mysql || die "mysql seed FAILED (restore-mysql-dumps.yml) — metrics/analytics_logs did not fully load; metrics-pro/analytics-api would 500. Fix the dump load and re-run: ./deploy.sh seed"
   # shellcheck disable=SC2086
   # 2) Mongo mongodump restore (optional external dump; skips if absent).
   apb restore-mongo.yml        $ev_mongo || warn "mongo restore: inspect output (restore-mongo.yml)"
@@ -500,15 +505,16 @@ phase_apps() {
     || _gate_err="${_gate_err}\n  - OpenSearch not Running (service-search would fail). Fix: ./deploy.sh support ; kc -n $NS get pods -l app=opensearch"
   [ -z "$_gate_err" ] && ok "foundation gate OK (StorageClass + SeaweedFS + OpenSearch ready)" \
     || die "foundation NOT ready — refusing to deploy apps onto a broken base:$(printf '%b' "$_gate_err")"
-  # link-preview consumer patch (after_message) — the extensions deploy mounts this ConfigMap over the
-  # image's buggy controller. Must exist BEFORE the extensions pod starts.
-  [ -f "$K8S/patches/LinkPreviewController.js" ] && \
-    kc -n "$NS" create configmap linkpreview-patch --from-file=LinkPreviewController.js="$K8S/patches/LinkPreviewController.js" \
-      --dry-run=client -o yaml | kc apply -f - >/dev/null 2>&1 && ok "linkpreview-patch configmap"
+  # link-preview runs NATIVE in the extensions image — the old LinkPreviewController.js lp-patch was
+  # REMOVED (2026-07-04); it re-processed message_edited events into a self-referential edit loop. Do NOT
+  # re-add a patch mount or its ConfigMap (see PROBLEMS-AND-FIXES + no-ref-apps.yaml notes).
   kc apply -f "$K8S/chatapi.yaml" -f "$K8S/mgmtapi.yaml"
   local f
+  # k8s/apps/*.yaml = curated digest-pinned services PLUS vercel-agent.yaml (the BYOA sample agent
+  # for the AI-agent "Connect Agent" feature — registry-free: node:20 + initContainer npm ci from a
+  # base64 tarball ConfigMap, no ECR image). Every manifest dropped in apps/ is applied by this glob.
   for f in "$K8S"/apps/*.yaml; do kc apply -f "$f"; done
-  ok "applied chatapi, mgmtapi, and k8s/apps/* (digest-pinned, ecr-pull-secret)"
+  ok "applied chatapi, mgmtapi, and k8s/apps/* (digest-pinned ECR apps + vercel-agent BYOA agent)"
   # De-stage the mgmt-image-seeded extension URLs (cometchat-staging.com -> cometchat-cluster-2.in).
   # The mgmt onprem_setup migration bakes the staging domain into pulsecustomerdb.microservices + per-app
   # cod_* DBs; this idempotent REPLACE corrects them so the dashboard/SDK reach our on-prem extensions.
@@ -530,6 +536,18 @@ phase_node_apps() {
   step "node-apps — websocket / moderationservice / visual-chat-builder / ai-agent-service / workers / dashboard"
   open_tunnel
   run env KUBECONFIG="$KUBECONFIG_FILE" NS="$NS" python3 "$SCRIPTS/deploy-node-apps.py"
+  # extensions S3 path-style (SeaweedFS 4.37 sigv4): the extensions image builds its aws-sdk S3 client with
+  # the default s3ForcePathStyle=false -> VIRTUAL-HOST (Host=uploads.media-onprem) -> SignatureDoesNotMatch,
+  # because 4.37 validates the signature against S3_EXTERNAL_URL (media-onprem). A `node -r` PRELOAD flips the
+  # GLOBAL aws-sdk default to path-style (Host stays media-onprem) — config-only, no image change / no filer
+  # restart. Proven in-cluster: virtual-host=FAIL, path-style=OK. Fixes whiteboard/document/thumbnail uploads.
+  kc -n "$NS" create configmap extensions-s3-pathstyle-patch \
+     --from-file=extensions-force-path-style.js="$K8S/apps/extensions-force-path-style.js" \
+     --dry-run=client -o yaml | kc apply -f - >/dev/null 2>&1
+  kc -n "$NS" patch deploy extensions --type strategic -p '{"spec":{"template":{"spec":{"volumes":[{"name":"s3patch","configMap":{"name":"extensions-s3-pathstyle-patch"}}],"containers":[{"name":"extensions","command":["node","-r","/patch/extensions-force-path-style.js","-r","./loader.js","./cluster.js"],"volumeMounts":[{"name":"s3patch","mountPath":"/patch","readOnly":true}]}]}}}}' >/dev/null 2>&1 \
+     && ok "extensions S3 forced to path-style (whiteboard/document/thumbnail work on 4.37)" \
+     || warn "extensions path-style patch failed (kc -n $NS get deploy extensions)"
+  kc -n "$NS" rollout status deploy/extensions --timeout=150s >/dev/null 2>&1 || warn "extensions not ready after path-style patch"
   # Dashboard (SINGLE SOURCE OF TRUTH): dashboard-nginx (nginx cm) + dashboard.yaml (build-copy + the
   # dashboard-config config.json overlay that points REACT_APP_CUSTOMER_DOMAIN at apimgmt.$DOMAIN). Without
   # this config.json overlay the SPA falls back to its baked-in cometchat-staging.com default -> CORS.
@@ -538,6 +556,24 @@ phase_node_apps() {
     && ok "dashboard applied (config.json overlay -> apimgmt.$DOMAIN; no staging fallback)" \
     || warn "dashboard apply failed (check dashboard.yaml + dashboard-nginx.yaml)"
   kc -n "$NS" rollout status deploy/dashboard --timeout=120s >/dev/null 2>&1 || warn "dashboard not ready yet"
+  # ai-agent-service datastore seed — the image's prod entrypoint is `migrate:up:prod && node dist/src/main`,
+  # but deploy-node-apps.py runs the image's DEFAULT command (server only, no migrate), so the seed migration
+  # `integrations-and-forms-seed` never runs, the `forms` collection stays empty, and FormsService.getAgentForm()
+  # does findOne({formType:'agent'}) -> null -> "Cannot read properties of null (reading 'fields')" -> HTTP 500 on
+  # /ai-agents/forms/agent-creation (Connect Agent broken). This Job runs the image's OWN migrations (same image +
+  # ai-agent-service-env secret) to seed forms + BYO-agent integrations. Idempotent (ts-migrate-mongoose changelog
+  # + upserts). Runs here (after node-apps) so the ai-agent-service-env secret exists.
+  kc -n "$NS" delete job ai-agent-forms-seed --ignore-not-found >/dev/null 2>&1
+  kc apply -f "$K8S/ai-agent-forms-seed.job.yaml" >/dev/null 2>&1
+  kc -n "$NS" wait --for=condition=complete job/ai-agent-forms-seed --timeout=180s >/dev/null 2>&1 \
+    && ok "ai-agent forms/integrations seeded" || warn "ai-agent-forms-seed not complete (kc -n $NS logs job/ai-agent-forms-seed)"
+  # seed the 202 default-sticker METADATA docs into extensions.stickers-default (the image ships them in
+  # DefaultStickersData.js but its boot-seed never runs under the server-only command -> picker blank).
+  # Extracts from the extensions image, substitutes the real serving host, upserts to Mongo. Idempotent.
+  kc -n "$NS" delete job sticker-metadata-seed --ignore-not-found >/dev/null 2>&1
+  kc apply -f "$K8S/sticker-metadata-seed.job.yaml" >/dev/null 2>&1
+  kc -n "$NS" wait --for=condition=complete job/sticker-metadata-seed --timeout=180s >/dev/null 2>&1 \
+    && ok "default sticker metadata seeded (202 docs)" || warn "sticker-metadata-seed not complete (kc -n $NS logs job/sticker-metadata-seed)"
   # complete the default push-settings (poll/reminder/mention templates the auto-created doc omits).
   # Self-waits for notificationscore to create the base doc; idempotent.
   kc -n "$NS" delete job notifications-push-settings-seed --ignore-not-found >/dev/null 2>&1
@@ -738,7 +774,7 @@ phase_certs() {
 # workloads. Storage is the consolidated HA stack (k8s/seaweedfs): master/volume/filer + cometchatfs.
 EXPECTED_WORKLOADS="chatapi mgmtapi opensearch ollama mailpit \
 seaweedfs-master seaweedfs-volume seaweedfs-filer cometchatfs \
-clamav globalwebhooks metrics-pro-timer analytics metrics-pro extensions notificationscore service-search sql-consumer \
+clamav globalwebhooks timer-task analytics metrics-pro extensions notificationscore service-search sql-consumer \
 websocket moderationservice visual-chat-builder ai-agent-service receipt-updater notifications-delay-worker dashboard"
 
 phase_verify() {

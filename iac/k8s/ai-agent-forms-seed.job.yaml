@@ -1,0 +1,39 @@
+# ai-agent-service datastore seed — runs the image's OWN db migrations against the
+# ai-agents Mongo (ai-agents-db-new on the Mongo rs0 VM) so the BYO-Agent config data
+# exists on a fresh cluster. WHY this Job:
+#   The ai-agent-service image's prod entrypoint is `npm run migrate:up:prod && node dist/src/main`,
+#   but deploy-node-apps.py runs the image's default command (which starts the server WITHOUT the
+#   migrate step). So the seed migration `1779200000000-integrations-and-forms-seed` never ran, the
+#   `forms` collection stayed EMPTY, and FormsService.getAgentForm() did
+#   `findOne({formType:'agent',isActive:true})` -> null -> "Cannot read properties of null (reading
+#   'fields')" -> HTTP 500 on /ai-agents/forms/agent-creation (Connect Agent broken).
+# WHAT it seeds (idempotent upserts, from the image's compiled migrations):
+#   - forms:        formType 'agent' (Agent Creation Form: fields+submitDetails) and formType 'tools'
+#   - integrations: the BYO-agent providers (mastra, agno, crewai, ag2, vercelV5, rasa, ag-ui, langgraph)
+# Idempotent: ts-migrate-mongoose records applied migrations in the `migrations` changelog collection
+#   and each migration upserts — safe to re-run. Uses the SAME image + ai-agent-service-env secret
+#   (so MONGO_URI/CC_DOMAIN match the running service exactly). Image is pinned by digest to match
+#   deploy-node-apps.py's ai-agent-service digest.
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: ai-agent-forms-seed, namespace: cometchat }
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      imagePullSecrets: [{ name: ecr-pull }]
+      containers:
+        - name: migrate
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:5adf6f3fec9768699eb4df8dd9ef1962a2a4d72eed621a062e79dc0ebe7207df
+          workingDir: /app
+          # distroless node image (no shell) -> invoke node + the ts-migrate-mongoose CLI directly.
+          # migrate.js reads MONGO_URI via dotenv from the mounted /app/.env.
+          command: ["node", "/app/node_modules/ts-migrate-mongoose/dist/cli.js", "-f", "dist/src/migrate.js", "up"]
+          volumeMounts:
+            - { name: env, mountPath: /app/.env, subPath: .env, readOnly: true }
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 512Mi } }
+      volumes:
+        - { name: env, secret: { secretName: ai-agent-service-env } }

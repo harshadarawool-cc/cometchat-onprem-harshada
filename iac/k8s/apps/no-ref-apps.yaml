@@ -199,12 +199,14 @@ spec:
         - name: extensions
           # node22 restructure (fixes :extensions=6bf7fb44 MODULE_NOT_FOUND RetryDynamoModel.js):
           # code at WORKDIR / (loader.js, cluster.js); reads /env.<NODE_ENV>.json; PORT 5000 from config COMMON.PORT.
-          # PINNED to the dev's fixed node22-fix build (c826c46e). The mutable :extensions `latest` tag
-          # drifted to dca93de5, which regressed link-preview to a message_edited-only gate: it re-edits
-          # every message, and its own edit re-triggers it -> infinite self-loop -> message topic grows
-          # unbounded -> globalwebhooks floods. c826c46e does link-preview natively on-send (no loop).
-          # This is the documented extensions exception to "use latest". See cometchat-extensions-handoff.
-          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:c826c46e40162c222a9d7103fa3ae1af9b660e6a5f5d3a997e1db1fbd4635e72  # :extensions PINNED (node22-fix)
+          # Uses the current mutable :extensions `latest` (25b229c1, pushed 2026-06-24, ~90min after the
+          # node22-fix c826c46e). VERIFIED 2026-07-03: link-preview runs native on-send, NO edit-loop,
+          # previews inject correctly. (The old link-preview self-loop was NOT the image — it was our OWN
+          # stale LinkPreviewController.js patch overriding the image; that patch is removed. The bad
+          # dca93de5 digest the earlier note warned about is gone from ECR.) NB: both c826c46e and 25b229c1
+          # still hardcode /v2.0/auth_tokens, so whiteboard/document CREATE needs a v2+v3 app — a v3-only
+          # app (like 1bf6470b9a8) rejects it. See cometchat-extensions-handoff.
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:25b229c1de94db9ccd57e635c5f921f4356eef01df31ecdf97c344ea3df8cadc  # :extensions latest (25b229c1, verified loop-free 2026-07-03)
           # distroless image (no sh): run the native CMD directly, move the env the wrapper set into env:
           command: ["node","-r","./loader.js","./cluster.js"]
           workingDir: /app
@@ -217,9 +219,11 @@ spec:
           ports: [{ containerPort: 5000, name: http }]
           volumeMounts:
             - { name: config, mountPath: /app/env.staging.json, subPath: env.staging.json, readOnly: true }
-            # LOCAL PATCH (k8s/patches/LinkPreviewController.js): link-preview consumer also generates
-            # previews on new sends (after_message), not only edits. Remove when a fixed image ships.
-            - { name: lp-patch, mountPath: /app/extensions/link-preview/src/controllers/LinkPreviewController.js, subPath: LinkPreviewController.js, readOnly: true }
+            # NOTE (2026-07-03): the LinkPreviewController.js patch that used to mount here is REMOVED —
+            # it was our workaround for the OLD bad image (dca93de5) and it OVERRODE the c826c46e image's
+            # native link-preview controller with a buggy one that re-processed message_edited → infinite
+            # edit-loop (~12/sec) flooding clients. c826c46e does link-preview natively on-send with no loop,
+            # so no patch is needed. (Fixed patch kept in k8s/patches/ + configmap as a fallback only.)
           startupProbe: { tcpSocket: { port: 5000 }, periodSeconds: 10, failureThreshold: 30 }
           readinessProbe: { tcpSocket: { port: 5000 }, periodSeconds: 10 }
           resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: "1", memory: 1Gi } }
@@ -234,7 +238,6 @@ spec:
           resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 200m, memory: 128Mi } }
       volumes:
         - { name: config, secret: { secretName: extensions-config } }
-        - { name: lp-patch, configMap: { name: linkpreview-patch } }   # link-preview after_message patch
         - { name: nginx-config, configMap: { name: extensions-nginx-config } }
         - { name: tls, secret: { secretName: wildcard-tls } }
 ---

@@ -19,10 +19,43 @@ kind: ConfigMap
 metadata: { name: seaweedfs-edge-nginx, namespace: cometchat }
 data:
   default.conf: |
+    # ---- assets.<domain>: PUBLIC avatars/statics served out of the `assets` bucket ----
+    # The sample-app + dashboard emit bucket-LESS URLs: https://assets.<domain>/sampleapp/v2/users/x.webp
+    # (mirrors assets.cometchat.io/sampleapp/...). SeaweedFS S3 is PURE PATH-STYLE — it takes the bucket
+    # from the FIRST path segment, NOT the Host (proven: Host=assets.<domain> + path /sampleapp/... makes
+    # the filer look for bucket "sampleapp" -> AccessDenied). So this vhost injects the `assets` bucket
+    # prefix (/x -> /assets/x) and pins Host to the S3 host so path-style resolution stays unambiguous.
+    # Anonymous GET (public read via the `anonymous` identity in s3config.json). Reached when HAProxy SNI
+    # routes assets.<domain> -> nodePort 30449 (seaweedfs-edge) — see k8s/edge-nodeports.yaml + group_vars/haproxy.yml.
+    # This server block MUST precede the catch-all `_` below so nginx matches it first.
     server {
       listen 80;
       listen 443 ssl;
-      server_name _;                       # wildcard-tls; HAProxy already SNI-routed here
+      server_name assets.cometchat-cluster-2.in;
+      ssl_certificate     /etc/nginx/ssl/tls.crt;
+      ssl_certificate_key /etc/nginx/ssl/tls.key;
+      client_max_body_size 0;
+      underscores_in_headers on;
+      ignore_invalid_headers off;
+      location = /nginx-health { access_log off; return 200 '{"status":"ok"}'; add_header Content-Type application/json; }
+      location / {
+        rewrite ^/(.*)$ /assets/$1 break;                  # bucket-less URL -> `assets` bucket (path-style)
+        proxy_pass http://seaweedfs-filer:8333;
+        proxy_set_header Host media-onprem.cometchat-cluster-2.in;  # pin to S3_HOST -> keep path-style (no vhost ambiguity)
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+      }
+    }
+    server {
+      listen 80 default_server;            # DEFAULT: any host except assets.<domain> (media|data|files-onprem,
+      listen 443 ssl default_server;       # per-app media) -> PATH-STYLE passthrough. Without default_server the
+                                           # assets vhost above (being first) would catch these + wrongly /assets/-rewrite
+                                           # them (breaks media-onprem/stickers, /visual-chat-builder-app, /uploads).
+      server_name _;                       # wildcard-tls; HAProxy already SNI-routed here (media|data|files-onprem)
       ssl_certificate     /etc/nginx/ssl/tls.crt;
       ssl_certificate_key /etc/nginx/ssl/tls.key;
       client_max_body_size 0;              # large object PUTs (no cap)

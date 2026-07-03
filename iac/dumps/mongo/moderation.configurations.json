@@ -1,0 +1,1906 @@
+[{
+  "_id": {
+    "$oid": "682f1cb058f649ddb8cc6ea6"
+  },
+  "conditionSet": {
+    "entities": {
+      "message": {
+        "name": "Message",
+        "operands": [
+          {
+            "key": "text",
+            "name": "Text",
+            "operators": [
+              {
+                "operator": "equals",
+                "name": "Equals",
+                "inputSelection": [
+                  "textbox",
+                  "regex"
+                ],
+                "nextStep": null
+              },
+              {
+                "operator": "contains",
+                "name": "Contains",
+                "inputSelection": [
+                  "textbox",
+                  "keyword",
+                  "regex",
+                  "toxicity",
+                  "sentence-similarity",
+                  "sentiment",
+                  "open-ai",
+                  "custom-api"
+                ],
+                "nextStep": [
+                  {
+                    "key": "toxicity",
+                    "name": "Toxicity",
+                    "operators": [
+                      {
+                        "operator": "contains",
+                        "name": "Contains",
+                        "inputSelection": [
+                          "dropdown"
+                        ],
+                        "dropdownOptions": [
+                          "Any Toxicity",
+                          "Identity Attack",
+                          "Insult",
+                          "Obscene",
+                          "Mild toxicity",
+                          "Severe toxicity",
+                          "Sexual explicit",
+                          "Threat"
+                        ],
+                        "nextStep": [
+                          {
+                            "key": "Any Toxicity",
+                            "name": "Any Toxicity",
+                            "operators": [
+                              {
+                                "operator": "greaterThan",
+                                "name": "Confidence greater than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              },
+                              {
+                                "operator": "lessThan",
+                                "name": "Confidence less than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              }
+                            ]
+                          },
+                          {
+                            "key": "Identity Attack",
+                            "name": "Identity Attack",
+                            "operators": [
+                              {
+                                "operator": "greaterThan",
+                                "name": "Confidence greater than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              },
+                              {
+                                "operator": "lessThan",
+                                "name": "Confidence less than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              }
+                            ]
+                          },
+                          {
+                            "key": "Insult",
+                            "name": "Insult",
+                            "operators": [
+                              {
+                                "operator": "greaterThan",
+                                "name": "Confidence greater than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              },
+                              {
+                                "operator": "lessThan",
+                                "name": "Confidence less than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              }
+                            ]
+                          },
+                          {
+                            "key": "Obscene",
+                            "name": "Obscene",
+                            "operators": [
+                              {
+                                "operator": "greaterThan",
+                                "name": "Confidence greater than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              },
+                              {
+                                "operator": "lessThan",
+                                "name": "Confidence less than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              }
+                            ]
+                          },
+                          {
+                            "key": "Mild toxicity",
+                            "name": "Mild toxicity",
+                            "operators": [
+                              {
+                                "operator": "greaterThan",
+                                "name": "Confidence greater than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              },
+                              {
+                                "operator": "lessThan",
+                                "name": "Confidence less than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              }
+                            ]
+                          },
+                          {
+                            "key": "Severe toxicity",
+                            "name": "Severe toxicity",
+                            "operators": [
+                              {
+                                "operator": "greaterThan",
+                                "name": "Confidence greater than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              },
+                              {
+                                "operator": "lessThan",
+                                "name": "Confidence less than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              }
+                            ]
+                          },
+                          {
+                            "key": "Sexual explicit",
+                            "name": "Sexual explicit",
+                            "operators": [
+                              {
+                                "operator": "greaterThan",
+                                "name": "Confidence greater than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              },
+                              {
+                                "operator": "lessThan",
+                                "name": "Confidence less than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              }
+                            ]
+                          },
+                          {
+                            "key": "Threat",
+                            "name": "Threat",
+                            "operators": [
+                              {
+                                "operator": "greaterThan",
+                                "name": "Confidence greater than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              },
+                              {
+                                "operator": "lessThan",
+                                "name": "Confidence less than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "key": "sentence-similarity",
+                    "name": "sentence-similarity",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "sentiment",
+                    "name": "sentiment",
+                    "operators": [
+                      {
+                        "operator": "contains",
+                        "name": "Contains",
+                        "inputSelection": [
+                          "dropdown"
+                        ],
+                        "dropdownOptions": [
+                          "positive",
+                          "negative"
+                        ],
+                        "nextStep": [
+                          {
+                            "key": "positive",
+                            "name": "Positive",
+                            "operators": [
+                              {
+                                "operator": "greaterThan",
+                                "name": "Confidence greater than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              },
+                              {
+                                "operator": "lessThan",
+                                "name": "Confidence less than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              }
+                            ]
+                          },
+                          {
+                            "key": "negative",
+                            "name": "Negative",
+                            "operators": [
+                              {
+                                "operator": "greaterThan",
+                                "name": "Confidence greater than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              },
+                              {
+                                "operator": "lessThan",
+                                "name": "Confidence less than",
+                                "inputSelection": [
+                                  "textbox"
+                                ],
+                                "nextStep": null
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "key": "custom-api",
+                    "name": "custom-api",
+                    "operators": [
+                      {
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "name": "confidence greater than",
+                        "operator": "greaterThan"
+                      },
+                      {
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "name": "confidence less than",
+                        "operator": "lessThan"
+                      }
+                    ]
+                  },
+                  {
+                    "key": "open-ai",
+                    "name": "open-ai",
+                    "operators": [
+                      {
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "name": "confidence greater than",
+                        "operator": "greaterThan"
+                      },
+                      {
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "name": "confidence less than",
+                        "operator": "lessThan"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "key": "image",
+            "name": "Image",
+            "operators": [
+              {
+                "operator": "contains",
+                "name": "Contains",
+                "inputSelection": [
+                  "dropdown"
+                ],
+                "dropdownOptions": [
+                  "Any unsafe content",
+                  "Violence",
+                  "Alcohol",
+                  "Gambling",
+                  "Drugs & Tobacco",
+                  "Rude Gestures",
+                  "Explicit Nudity",
+                  "Non-Explicit Nudity",
+                  "Swimwear or Underwear",
+                  "Visually Disturbing",
+                  "Hate Symbols",
+                  "open-ai",
+                  "custom-api",
+                  "virus_malware_scanner"
+                ],
+                "nextStep": [
+                  {
+                    "key": "Any unsafe content",
+                    "name": "Any unsafe content",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Explicit Nudity",
+                    "name": "Explicit Nudity",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Non-Explicit Nudity",
+                    "name": "Non-Explicit Nudity",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Swimwear or Underwear",
+                    "name": "Swimwear or Underwear",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Visually Disturbing",
+                    "name": "Visually Disturbing",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Hate Symbols",
+                    "name": "Hate Symbols",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Violence",
+                    "name": "Violence",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Alcohol",
+                    "name": "Alcohol",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Gambling",
+                    "name": "Gambling",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Drugs & Tobacco",
+                    "name": "Drugs & Tobacco",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Rude Gestures",
+                    "name": "Rude Gestures",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "open-ai",
+                    "name": "open-ai",
+                    "operators": [
+                      {
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "name": "confidence greater than",
+                        "operator": "greaterThan"
+                      },
+                      {
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "name": "confidence less than",
+                        "operator": "lessThan"
+                      }
+                    ]
+                  },
+                  {
+                    "key": "custom-api",
+                    "name": "custom-api",
+                    "operators": [
+                      {
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "name": "confidence greater than",
+                        "operator": "greaterThan"
+                      },
+                      {
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "name": "confidence less than",
+                        "operator": "lessThan"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "key": "video",
+            "name": "Video",
+            "operators": [
+              {
+                "operator": "contains",
+                "name": "Contains",
+                "inputSelection": [
+                  "dropdown"
+                ],
+                "dropdownOptions": [
+                  "Any unsafe content",
+                  "Violence",
+                  "Alcohol",
+                  "Gambling",
+                  "Drugs & Tobacco",
+                  "Rude Gestures",
+                  "Explicit Nudity",
+                  "Non-Explicit Nudity",
+                  "Swimwear or Underwear",
+                  "Visually Disturbing",
+                  "Hate Symbols",
+                  "virus_malware_scanner"
+                ],
+                "nextStep": [
+                  {
+                    "key": "Any unsafe content",
+                    "name": "Any unsafe content",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Explicit Nudity",
+                    "name": "Explicit Nudity",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Non-Explicit Nudity of Intimate parts and Kissing",
+                    "name": "Non-Explicit Nudity",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Swimwear or Underwear",
+                    "name": "Swimwear or Underwear",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Visually Disturbing",
+                    "name": "Visually Disturbing",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Hate Symbols",
+                    "name": "Hate Symbols",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Violence",
+                    "name": "Violence",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Alcohol",
+                    "name": "Alcohol",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Gambling",
+                    "name": "Gambling",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Drugs & Tobacco",
+                    "name": "Drugs & Tobacco",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "Rude Gestures",
+                    "name": "Rude Gestures",
+                    "operators": [
+                      {
+                        "operator": "greaterThan",
+                        "name": "Confidence greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "lessThan",
+                        "name": "Confidence less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "equals",
+                        "name": "Confidence equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "key": "file",
+            "name": "File",
+            "operators": [
+              {
+                "operator": "contains",
+                "name": "Contains",
+                "inputSelection": [
+                  "dropdown"
+                ],
+                "dropdownOptions": [
+                  "virus_malware_scanner"
+                ],
+                "nextStep": null
+              }
+            ]
+          },
+          {
+            "key": "audio",
+            "name": "Audio",
+            "operators": [
+              {
+                "operator": "contains",
+                "name": "Contains",
+                "inputSelection": [
+                  "dropdown"
+                ],
+                "dropdownOptions": [
+                  "virus_malware_scanner"
+                ],
+                "nextStep": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "actions": {
+      "mandatory": {
+        "blockMessage": "Block Message",
+        "flagMessage": "Flag Message"
+      },
+      "optional": {
+        "kick": "Kick user from group",
+        "ban": "Ban user from group",
+        "block": "Block user"
+      }
+    }
+  },
+  "filterSet": {
+    "entities": {
+      "message": {
+        "name": "Message",
+        "subEntities": [
+          {
+            "key": "sender",
+            "name": "Sender",
+            "operands": [
+              {
+                "key": "uid",
+                "name": "UID",
+                "operators": [
+                  {
+                    "operator": "equals",
+                    "name": "Equals",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "notEquals",
+                    "name": "Not Equals",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "in",
+                    "name": "In",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "notIn",
+                    "name": "Not in",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "startsWith",
+                    "name": "Starts With",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  }
+                ]
+              },
+              {
+                "key": "name",
+                "name": "Name",
+                "operators": [
+                  {
+                    "operator": "equals",
+                    "name": "Equals",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "notEquals",
+                    "name": "Not Equals",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "in",
+                    "name": "In",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "notIn",
+                    "name": "Not in",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "startsWith",
+                    "name": "Starts With",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  }
+                ]
+              },
+              {
+                "key": "role",
+                "name": "Role",
+                "operators": [
+                  {
+                    "operator": "equals",
+                    "name": "Equals",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "notEquals",
+                    "name": "Not Equals",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "in",
+                    "name": "In",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "notIn",
+                    "name": "Not in",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "startsWith",
+                    "name": "Starts With",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  }
+                ]
+              },
+              {
+                "key": "scope",
+                "name": "Scope",
+                "operators": [
+                  {
+                    "operator": "equals",
+                    "name": "Equals",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "notEquals",
+                    "name": "Not Equals",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "in",
+                    "name": "In",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "notIn",
+                    "name": "Not in",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "startsWith",
+                    "name": "Starts With",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  }
+                ]
+              },
+              {
+                "key": "tags",
+                "name": "Tags",
+                "operators": [
+                  {
+                    "operator": "equals",
+                    "name": "Equals",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "notEquals",
+                    "name": "Not Equals",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "in",
+                    "name": "In",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "notIn",
+                    "name": "Not in",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "startsWith",
+                    "name": "Starts With",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  }
+                ]
+              },
+              {
+                "key": "createdAt",
+                "name": "Created At",
+                "operators": [
+                  {
+                    "operator": "lessThan",
+                    "name": "Less than",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  },
+                  {
+                    "operator": "greaterThan",
+                    "name": "Greater Than",
+                    "inputSelection": [
+                      "textbox"
+                    ],
+                    "nextStep": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "key": "receiver",
+            "name": "Receiver",
+            "subEntities": [
+              {
+                "key": "user",
+                "name": "User",
+                "operands": [
+                  {
+                    "key": "uid",
+                    "name": "UID",
+                    "operators": [
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notEquals",
+                        "name": "Not Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "in",
+                        "name": "In",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notIn",
+                        "name": "Not in",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "startsWith",
+                        "name": "Starts With",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "name",
+                    "name": "Name",
+                    "operators": [
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notEquals",
+                        "name": "Not Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "in",
+                        "name": "In",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notIn",
+                        "name": "Not in",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "startsWith",
+                        "name": "Starts With",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "role",
+                    "name": "Role",
+                    "operators": [
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notEquals",
+                        "name": "Not Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "in",
+                        "name": "In",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notIn",
+                        "name": "Not in",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "startsWith",
+                        "name": "Starts With",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "tags",
+                    "name": "Tags",
+                    "operators": [
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notEquals",
+                        "name": "Not Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "in",
+                        "name": "In",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notIn",
+                        "name": "Not in",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "startsWith",
+                        "name": "Starts With",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "createdAt",
+                    "name": "Created At",
+                    "operators": [
+                      {
+                        "operator": "lessThan",
+                        "name": "Less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "greaterThan",
+                        "name": "Greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "key": "group",
+                "name": "Group",
+                "operands": [
+                  {
+                    "key": "guid",
+                    "name": "GUID",
+                    "operators": [
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notEquals",
+                        "name": "Not Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "in",
+                        "name": "In",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notIn",
+                        "name": "Not in",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "startsWith",
+                        "name": "Starts With",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "name",
+                    "name": "Name",
+                    "operators": [
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notEquals",
+                        "name": "Not Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "in",
+                        "name": "In",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notIn",
+                        "name": "Not in",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "startsWith",
+                        "name": "Starts With",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "type",
+                    "name": "Type",
+                    "operators": [
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "nextStep": null,
+                        "inputSelection": [
+                          "dropDown"
+                        ],
+                        "dropdownOptions": [
+                          "public",
+                          "private",
+                          "password"
+                        ]
+                      },
+                      {
+                        "operator": "notEquals",
+                        "name": "Not Equals",
+                        "nextStep": null,
+                        "inputSelection": [
+                          "dropDown"
+                        ],
+                        "dropdownOptions": [
+                          "public",
+                          "private",
+                          "password"
+                        ]
+                      },
+                      {
+                        "operator": "in",
+                        "name": "In",
+                        "nextStep": null,
+                        "inputSelection": [
+                          "dropDown"
+                        ],
+                        "dropdownOptions": [
+                          "public",
+                          "private",
+                          "password"
+                        ]
+                      },
+                      {
+                        "operator": "notIn",
+                        "name": "Not in",
+                        "nextStep": null,
+                        "inputSelection": [
+                          "dropDown"
+                        ],
+                        "dropdownOptions": [
+                          "public",
+                          "private",
+                          "password"
+                        ]
+                      },
+                      {
+                        "operator": "startsWith",
+                        "name": "Starts With",
+                        "nextStep": null,
+                        "inputSelection": [
+                          "dropDown"
+                        ],
+                        "dropdownOptions": [
+                          "public",
+                          "private",
+                          "password"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "key": "tags",
+                    "name": "Tags",
+                    "operators": [
+                      {
+                        "operator": "equals",
+                        "name": "Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notEquals",
+                        "name": "Not Equals",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "in",
+                        "name": "In",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "notIn",
+                        "name": "Not in",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "startsWith",
+                        "name": "Starts With",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  },
+                  {
+                    "key": "createdAt",
+                    "name": "Created At",
+                    "operators": [
+                      {
+                        "operator": "lessThan",
+                        "name": "Less than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      },
+                      {
+                        "operator": "greaterThan",
+                        "name": "Greater than",
+                        "inputSelection": [
+                          "textbox"
+                        ],
+                        "nextStep": null
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}]

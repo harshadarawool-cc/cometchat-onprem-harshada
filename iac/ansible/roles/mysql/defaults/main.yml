@@ -3,3 +3,8 @@ mysql_root_password: "{{ vault_mysql_root_password | default('CHANGE_ME_MATCH_ST
 mysql_data_disk_path: /dev/disk/by-id/google-data
 mysql_databases:
   - pulsecustomerdb
+  # metrics-pro reads/writes `metrics`; metrics-pro (DB_OLD) + analytics-api read `analytics_logs`.
+  # The services read these schemas but never CREATE the databases, so pre-create them empty here;
+  # restore-mysql-dumps.yml then loads dumps/metrics.sql + dumps/analytics.sql into them (COUNT-GUARDed).
+  - metrics
+  - analytics_logs

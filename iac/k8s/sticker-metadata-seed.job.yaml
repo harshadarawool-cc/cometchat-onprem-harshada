@@ -1,0 +1,57 @@
+# Seed the 202 default-sticker METADATA docs into Mongo `extensions.stickers-default` so the chat
+# sticker picker renders. (The PNGs are hosted separately in the SeaweedFS `stickers` bucket.)
+#
+# WHY THIS EXISTS: the extensions image SHIPS the 202 docs at
+#   /app/extensions/stickers/src/models/DefaultStickersData.js  (obfuscated; exports an array)
+# with a TEMPLATE stickerUrl `https://data-${REGION}.${DOMAIN}/stickers/<set>/<file>.png`. The image is
+# meant to seed these on boot, but deploy-node-apps.py runs the server-only default command, so the seed
+# never runs -> `stickers-default` stays empty -> picker blank (runbook §2.5 "sticker picker empty").
+#
+# This Job replicates the seed deterministically: an initContainer (the extensions image) `require()`s the
+# obfuscated module, substitutes the real serving host (media-<region>.<domain> — the PNGs are served
+# there via the anonymous-read grant), and writes the array; the mongo container upserts it (idempotent
+# on `id`). MONGO_URI + REGION/DOMAIN are read from the mounted extensions-config (no hardcoding).
+apiVersion: batch/v1
+kind: Job
+metadata: { name: sticker-metadata-seed, namespace: cometchat }
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      imagePullSecrets: [{ name: ecr-pull-secret }]
+      volumes:
+        - { name: shared, emptyDir: {} }
+        - { name: extcfg, secret: { secretName: extensions-config } }
+      initContainers:
+        - name: extract
+          # SAME digest as the extensions deployment (carries DefaultStickersData.js)
+          image: 894996064311.dkr.ecr.us-east-2.amazonaws.com/on-prem-docker-images@sha256:8ae95a99701474485d08196938bf39dd5f99aec493d2f714ddba725fa1b94433
+          command: ["node", "-e"]
+          args:
+            - |
+              const fs = require("fs");
+              const C = JSON.parse(fs.readFileSync("/cfg/env.staging.json", "utf8")).COMMON;
+              const host = "media-" + C.REGION + "." + C.DOMAIN_NAME;   // e.g. media-onprem.cometchat-cluster-2.in
+              const d = require("/app/extensions/stickers/src/models/DefaultStickersData.js");
+              const arr = (d.default || d).map(x => ({ ...x,
+                stickerUrl: String(x.stickerUrl || "").replace(/https?:\/\/data-undefined\.undefined/, "https://" + host) }));
+              fs.writeFileSync("/shared/stickers.json", JSON.stringify(arr));
+              fs.writeFileSync("/shared/mongo_uri", C.MONGO_URL || C.MONGO_URI || "");
+              console.log("extracted " + arr.length + " sticker docs, host=" + host);
+          volumeMounts:
+            - { name: shared, mountPath: /shared }
+            - { name: extcfg, mountPath: /cfg, readOnly: true }
+      containers:
+        - name: seed
+          image: mongo:7
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              URI="$(cat /shared/mongo_uri)"; [ -n "$URI" ] || { echo "FATAL: no MONGO_URI from extensions-config"; exit 1; }
+              mongoimport --uri "$URI" --collection stickers-default --jsonArray --mode=upsert --upsertFields=id /shared/stickers.json
+              echo "stickers-default now = $(mongosh "$URI" --quiet --eval 'db.getSiblingDB("extensions")["stickers-default"].countDocuments()')"
+          volumeMounts:
+            - { name: shared, mountPath: /shared }

@@ -50,7 +50,9 @@ def probe(health, port):
 
 # Per-service app-container memory limit override. moderationservice loads transformers.js ML models
 # (sentiment/toxicity) and OOMs (exit 137) at the 1Gi default — it needs ~3Gi; 4Gi gives headroom.
-MEM = {"moderationservice": "4Gi"}
+# ai-agent-service sits at ~960Mi steady-state and OOMKills (exit 137) at the 1Gi default (no headroom
+# for GC spikes -> a flapping pod that can't reliably serve /forms/*); 2Gi gives headroom.
+MEM = {"moderationservice": "4Gi", "ai-agent-service": "2Gi"}
 
 def node_yaml(name, digest, port, envp, health, jwt, tls=False):
     mem = MEM.get(name, "1Gi")   # app-container memory limit (default 1Gi; override above)

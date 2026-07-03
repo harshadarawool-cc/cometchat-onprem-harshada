@@ -38,7 +38,7 @@
 | **receipt-updater** | delivery/read-receipt updater (TiDB + Kafka) | `deploy-node-apps.py` (WORKERS) |
 | **notifications-delay-worker** | BullMQ delayed-notification worker | `deploy-node-apps.py` (WORKERS) |
 | **sql-consumer** | Kafka → TiDB consumer | `k8s/apps/sql-consumer.yaml` |
-| **metrics-pro-timer** | periodic monthly user-count job | `k8s/apps/metrics-pro-timer.yaml` |
+| **timer-task** | periodic monthly user-count job | `k8s/apps/timer-task.yaml` |
 
 ## Support services (in-cluster backends)
 

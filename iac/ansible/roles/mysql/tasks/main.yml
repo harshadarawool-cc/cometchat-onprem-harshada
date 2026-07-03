@@ -41,6 +41,14 @@
       innodb_flush_log_at_trx_commit = 2
       character-set-server = utf8mb4
       collation-server = utf8mb4_unicode_ci
+      # sql_mode: MySQL 8 default MINUS ONLY_FULL_GROUP_BY. The pro-metrics (metrics-pro) aggregate
+      # queries (MAU/DAU/PCC/minutes) SELECT nonaggregated columns alongside GROUP BY, which MySQL 8's
+      # default sql_mode rejects with ER_WRONG_FIELD_WITH_GROUP -> every /v1/metrics/* returns HTTP 500.
+      # The app connects as shared root with no per-connection sql_mode hook and the image is fixed, so
+      # the ONLY place to relax this is the server. Dropping ONLY_FULL_GROUP_BY only *relaxes* validation
+      # (all previously-valid queries stay valid) — it does not affect pulsecustomerdb/etherpad/etc.
+      # All other strict/safety modes are kept.
+      sql_mode = "STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
   notify: Restart MySQL
 
 - name: Override default bind-address

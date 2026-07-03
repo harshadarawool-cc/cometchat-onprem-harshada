@@ -15,6 +15,13 @@
 #     moderation.rules                                       <- moderation.rules.json
 #     moderation.profanewordkeywords                         <- moderation.profanewordkeywords.json
 #         (moderation default config / rules / profanity keyword master data)
+#   NOTE (moderation.rules is PER-APP): moderationservice queries rules as
+#   {appId:<app>, active:true} (RulesController.findAll) with NO appId-less fallback for the list,
+#   so the dashboard Moderation -> Rules list is EMPTY unless rule docs carry the caller's appId.
+#   moderation.rules.json here is the appId-LESS default template set; importing it alone does NOT
+#   populate any app's Rules list. To provision an app, import these 26 defaults with each doc stamped
+#   appId=<that app's id> (+ a fresh _id and revisionId=<app>_<id>_1). Live cluster-2: app 1bf6470b9a8
+#   was seeded this way (26 rules) to fix its empty Rules list.
 #
 #   Connects to mongo at 10.24.10.11:27017 as admin (mongo_admin_user/mongo_admin_password from
 #   vault), authSource admin, replicaSet rs0. Runs from the mongo primary host.

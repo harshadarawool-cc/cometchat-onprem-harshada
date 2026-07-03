@@ -113,8 +113,11 @@ spec:
               echo "=== octane :8000 ==="; exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8000 --workers=12 --max-requests=1000
           envFrom: []
           env:
-            # AWS_* (generic/data disk): internal endpoint — server-side only, no browser URLs.
-            - { name: AWS_ENDPOINT, value: "http://seaweedfs.cometchat:8333" }
+            # AWS_* (generic/data disk): server-side S3. MUST go through the EDGE (media-onprem), NOT the
+            # raw filer:8333 — SeaweedFS 4.37 validates the sigv4 signature against the request Host, which
+            # must equal the filer's S3_EXTERNAL_URL (media-onprem). Raw filer host -> SignatureDoesNotMatch.
+            # (path-style is mandatory too — see AWS_USE_PATH_STYLE_ENDPOINT below.)
+            - { name: AWS_ENDPOINT, value: "http://media-onprem.cometchat-cluster-2.in" }
             - { name: AWS_USE_PATH_STYLE_ENDPOINT, value: "true" }
             # SECURED_* (chat media): chatapi PRESIGNS media URLs and the AWS SDK signs them against
             # THIS endpoint — so it MUST be the PUBLIC host the browser can reach. The same host

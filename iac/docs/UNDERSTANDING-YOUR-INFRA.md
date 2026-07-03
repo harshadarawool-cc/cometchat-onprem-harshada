@@ -159,7 +159,7 @@ Grouped by the *job* they do (full table with ports/health paths: [SERVICES.md](
 - **AI:** `ai-agent-service` — AI chatbots/agents (host `*.ai-agent-service`, HTTP internal).
 - **Background workers (no web address, just consume Kafka & update stores):** `sql-consumer`
   (Kafka→TiDB), `receipt-updater` (delivery/read receipts), `notifications-delay-worker` (delayed pushes),
-  `metrics-pro-timer` (periodic counts).
+  `timer-task` (periodic counts).
 
 **Public vs internal:** anything a phone/browser must reach directly is **public** (chatapi, websocket,
 dashboard, mgmtapi, analytics, extensions, notifications, media, the editors). The rest are **internal** —
